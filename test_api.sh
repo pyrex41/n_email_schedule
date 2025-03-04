@@ -379,8 +379,67 @@ EOF
 )
 print_status $RESULT "Connecticut contact in batch should have 0 scheduled emails" "$DETAILS"
 
-# Test 6: Add a Year-Round state with a different state code to verify it's not just CT-specific
-echo -e "\n${YELLOW}Test 6: Schedule emails for Massachusetts contact (another year-round state)${NC}"
+# Test 6: Check Swagger JSON endpoint
+echo -e "\n${YELLOW}Test 6: Swagger JSON Documentation endpoint${NC}"
+API_DOCS_RESPONSE=$(curl -s "$API_URL/api-docs")
+echo "Response received (truncated): ${API_DOCS_RESPONSE:0:100}..."
+
+echo $API_DOCS_RESPONSE | jq -e '.openapi' &> /dev/null
+RESULT=$?
+DETAILS=$(cat << EOF
+Test: API docs endpoint should return valid OpenAPI JSON
+URL: $API_URL/api-docs
+Expected: Valid OpenAPI JSON with 'openapi' field
+Actual: $(if [ $RESULT -eq 0 ]; then echo "Valid OpenAPI JSON"; else echo "Invalid or missing OpenAPI JSON"; fi)
+EOF
+)
+print_status $RESULT "API docs endpoint should return valid OpenAPI JSON" "$DETAILS"
+
+# Check API title in Swagger JSON
+API_TITLE=$(echo $API_DOCS_RESPONSE | jq -r '.info.title')
+echo $API_DOCS_RESPONSE | jq -e '.info.title == "Medicare Email Scheduler API"' &> /dev/null
+RESULT=$?
+DETAILS=$(cat << EOF
+Test: Swagger JSON should have correct API title
+URL: $API_URL/api-docs
+Expected: info.title = "Medicare Email Scheduler API"
+Actual: info.title = "$API_TITLE"
+EOF
+)
+print_status $RESULT "Swagger JSON should have correct API title" "$DETAILS"
+
+# Test 7: Check Swagger UI HTML endpoint
+echo -e "\n${YELLOW}Test 7: Swagger UI Documentation endpoint${NC}"
+DOCS_RESPONSE=$(curl -s -I "$API_URL/docs")
+HTTP_STATUS=$(echo "$DOCS_RESPONSE" | grep "HTTP" | awk '{print $2}')
+CONTENT_TYPE=$(echo "$DOCS_RESPONSE" | grep -i "Content-Type" | awk '{print $2}')
+
+# Check if status is 200
+[[ "$HTTP_STATUS" == "200" ]] && STATUS_OK=0 || STATUS_OK=1
+RESULT=$STATUS_OK
+DETAILS=$(cat << EOF
+Test: Docs endpoint should return HTTP 200
+URL: $API_URL/docs
+Expected: HTTP Status = 200
+Actual: HTTP Status = $HTTP_STATUS
+EOF
+)
+print_status $RESULT "Docs endpoint should return HTTP 200" "$DETAILS"
+
+# Check if content type is HTML
+[[ "$CONTENT_TYPE" == *"text/html"* ]] && HTML_OK=0 || HTML_OK=1
+RESULT=$HTML_OK
+DETAILS=$(cat << EOF
+Test: Docs endpoint should return HTML content
+URL: $API_URL/docs
+Expected: Content-Type contains "text/html"
+Actual: Content-Type = "$CONTENT_TYPE"
+EOF
+)
+print_status $RESULT "Docs endpoint should return HTML content" "$DETAILS"
+
+# Test 8: Add a Year-Round state with a different state code to verify it's not just CT-specific
+echo -e "\n${YELLOW}Test 8: Schedule emails for Massachusetts contact (another year-round state)${NC}"
 MA_RESPONSE=$(curl -s -X POST "$API_URL/schedule-emails" \
   -H "Content-Type: application/json" \
   -d '{

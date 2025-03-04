@@ -71,3 +71,115 @@
 2025-03-04T09:56:59 INFO: Would schedule CarrierUpdate email for jane@example.com on 2025-04-03
 2025-03-04T09:56:59 INFO: Generated 0 emails for Bob Johnson
 2025-03-04T09:56:59 INFO: Email scheduling completed: 2 emails would be scheduled
+2025-03-04T15:10:34 INFO: Starting Medicare Email Scheduler
+2025-03-04T15:10:34 INFO: Using database URL: https://medicare-portal-pyrex41.turso.io
+2025-03-04T15:10:34 ERROR: Failed to connect to database, falling back to test contacts: SSL support is not available. Cannot connect over SSL. Compile with -d:ssl to enable.
+Async traceback:
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(302) n_email_schedule
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(299) main
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(209) runScheduler (Async)
+  /Users/reuben/n_email_schedule/src/database.nim(73) getContacts (Async)
+  /Users/reuben/n_email_schedule/src/database.nim(58) execQuery (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(1182) request (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(1083) requestAux (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(957) newConnection (Async)
+Exception message: SSL support is not available. Cannot connect over SSL. Compile with -d:ssl to enable.
+
+2025-03-04T15:10:34 INFO: Processing 3 contacts
+2025-03-04T15:10:34 INFO: Generated 2 emails for John Doe
+2025-03-04T15:10:34 ERROR: Error in batch processing: SSL support is not available. Cannot connect over SSL. Compile with -d:ssl to enable.
+Async traceback:
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(302) n_email_schedule
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(299) main
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(240) runScheduler (Async)
+  /Users/reuben/n_email_schedule/src/database.nim(121) saveEmail (Async)
+  /Users/reuben/n_email_schedule/src/database.nim(58) execQuery (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(1182) request (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(1083) requestAux (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(957) newConnection (Async)
+Exception message: SSL support is not available. Cannot connect over SSL. Compile with -d:ssl to enable.
+
+2025-03-04T15:10:34 INFO: Generated 2 emails for John Doe
+2025-03-04T15:10:34 ERROR: Error processing contact John Doe: SSL support is not available. Cannot connect over SSL. Compile with -d:ssl to enable.
+Async traceback:
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(302) n_email_schedule
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(299) main
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(260) runScheduler (Async)
+  /Users/reuben/n_email_schedule/src/database.nim(121) saveEmail (Async)
+  /Users/reuben/n_email_schedule/src/database.nim(58) execQuery (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(1182) request (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(1083) requestAux (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(957) newConnection (Async)
+Exception message: SSL support is not available. Cannot connect over SSL. Compile with -d:ssl to enable.
+
+2025-03-04T15:10:34 INFO: Generated 2 emails for Jane Smith
+2025-03-04T15:10:34 ERROR: Error processing contact Jane Smith: SSL support is not available. Cannot connect over SSL. Compile with -d:ssl to enable.
+Async traceback:
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(302) n_email_schedule
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(299) main
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(260) runScheduler (Async)
+  /Users/reuben/n_email_schedule/src/database.nim(121) saveEmail (Async)
+  /Users/reuben/n_email_schedule/src/database.nim(58) execQuery (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(1182) request (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(1083) requestAux (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(957) newConnection (Async)
+Exception message: SSL support is not available. Cannot connect over SSL. Compile with -d:ssl to enable.
+
+2025-03-04T15:10:34 INFO: Generated 0 emails for Bob Johnson
+2025-03-04T15:10:34 INFO: Email scheduling completed: 6 emails scheduled
+2025-03-04T15:10:57 INFO: Starting Medicare Email Scheduler
+2025-03-04T15:10:57 INFO: Using database URL: https://medicare-portal-pyrex41.turso.io
+2025-03-04T15:10:57 ERROR: Failed to connect to database, falling back to test contacts: SSL support is not available. Cannot connect over SSL. Compile with -d:ssl to enable.
+Async traceback:
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(302) n_email_schedule
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(299) main
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(209) runScheduler (Async)
+  /Users/reuben/n_email_schedule/src/database.nim(73) getContacts (Async)
+  /Users/reuben/n_email_schedule/src/database.nim(58) execQuery (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(1182) request (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(1083) requestAux (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(957) newConnection (Async)
+Exception message: SSL support is not available. Cannot connect over SSL. Compile with -d:ssl to enable.
+
+2025-03-04T15:10:57 INFO: Processing 3 contacts
+2025-03-04T15:10:57 INFO: Generated 2 emails for John Doe
+2025-03-04T15:10:57 ERROR: Error in batch processing: SSL support is not available. Cannot connect over SSL. Compile with -d:ssl to enable.
+Async traceback:
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(302) n_email_schedule
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(299) main
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(240) runScheduler (Async)
+  /Users/reuben/n_email_schedule/src/database.nim(121) saveEmail (Async)
+  /Users/reuben/n_email_schedule/src/database.nim(58) execQuery (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(1182) request (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(1083) requestAux (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(957) newConnection (Async)
+Exception message: SSL support is not available. Cannot connect over SSL. Compile with -d:ssl to enable.
+
+2025-03-04T15:10:57 INFO: Generated 2 emails for John Doe
+2025-03-04T15:10:57 ERROR: Error processing contact John Doe: SSL support is not available. Cannot connect over SSL. Compile with -d:ssl to enable.
+Async traceback:
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(302) n_email_schedule
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(299) main
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(260) runScheduler (Async)
+  /Users/reuben/n_email_schedule/src/database.nim(121) saveEmail (Async)
+  /Users/reuben/n_email_schedule/src/database.nim(58) execQuery (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(1182) request (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(1083) requestAux (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(957) newConnection (Async)
+Exception message: SSL support is not available. Cannot connect over SSL. Compile with -d:ssl to enable.
+
+2025-03-04T15:10:57 INFO: Generated 2 emails for Jane Smith
+2025-03-04T15:10:57 ERROR: Error processing contact Jane Smith: SSL support is not available. Cannot connect over SSL. Compile with -d:ssl to enable.
+Async traceback:
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(302) n_email_schedule
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(299) main
+  /Users/reuben/n_email_schedule/src/n_email_schedule.nim(260) runScheduler (Async)
+  /Users/reuben/n_email_schedule/src/database.nim(121) saveEmail (Async)
+  /Users/reuben/n_email_schedule/src/database.nim(58) execQuery (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(1182) request (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(1083) requestAux (Async)
+  /Users/reuben/.choosenim/toolchains/nim-2.2.2/lib/pure/httpclient.nim(957) newConnection (Async)
+Exception message: SSL support is not available. Cannot connect over SSL. Compile with -d:ssl to enable.
+
+2025-03-04T15:10:57 INFO: Generated 0 emails for Bob Johnson
+2025-03-04T15:10:57 INFO: Email scheduling completed: 6 emails scheduled
