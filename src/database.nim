@@ -77,6 +77,21 @@ proc getContacts*(config: DbConfig): Future[seq[Contact]] {.async.} =
     let result = response["results"][0]
     if "rows" in result:
       for row in result["rows"]:
+        # Handle date fields with Option[DateTime]
+        var effectiveDateOpt: Option[DateTime]
+        var birthDateOpt: Option[DateTime]
+        
+        try:
+          effectiveDateOpt = some(parseIsoDate(row[6].getStr))
+        except:
+          effectiveDateOpt = none(DateTime)
+          
+        try:
+          birthDateOpt = some(parseIsoDate(row[7].getStr))
+        except:
+          birthDateOpt = none(DateTime)
+          
+        # Create contact with Option fields
         let contact = Contact(
           id: row[0].getInt,
           firstName: row[1].getStr,
@@ -84,15 +99,15 @@ proc getContacts*(config: DbConfig): Future[seq[Contact]] {.async.} =
           email: row[3].getStr,
           currentCarrier: row[4].getStr,
           planType: row[5].getStr,
-          effectiveDate: parseIsoDate(row[6].getStr),
-          birthDate: parseIsoDate(row[7].getStr),
+          effectiveDate: effectiveDateOpt,
+          birthDate: birthDateOpt,
           tobaccoUser: row[8].getBool,
           gender: row[9].getStr,
           state: row[10].getStr,
           zipCode: row[11].getStr,
           agentID: row[12].getInt,
-          phoneNumber: row[13].getStr,
-          status: row[14].getStr
+          phoneNumber: if row[13].getStr != "": some(row[13].getStr) else: none(string),
+          status: if row[14].getStr != "": some(row[14].getStr) else: none(string)
         )
         contacts.add(contact)
   

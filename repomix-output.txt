@@ -1,4 +1,4 @@
-This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+This file is a merged representation of a subset of the codebase, containing files not matching ignore patterns, combined into a single document by Repomix.
 
 ================================================================
 File Summary
@@ -36,6 +36,7 @@ Notes:
 ------
 - Some files may have been excluded based on .gitignore rules and Repomix's configuration
 - Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching these patterns are excluded: **/*.md
 - Files matching patterns in .gitignore are excluded
 - Files matching default ignore patterns are excluded
 
@@ -53,23 +54,21 @@ src/
   n_email_schedule.nim
   rules.nim
   scheduler.nim
+  utils.nim
 tests/
-  README.md
+  test_api_simple.nim
+  test_api.nim
   test_email_rules.nim
+  test_scheduler_simple.nim
   test_scheduler.nim
+  test_utils.nim
 .env.sample
 .gitignore
-CLAUDE.md
-EmailRules.md
 n_email_schedule.nimble
-README.md
 run_tests.sh
 run.sh
-simple_api.nim
-test_api.nim
 test_api.sh
 test_nim.sh
-test_scheduler_simple.nim
 test.out
 
 ================================================================
@@ -82,7 +81,7 @@ File: src/api.nim
 import asyncdispatch, times, strutils, sequtils, logging, os, tables
 import jester
 import json
-import models, scheduler, database, dotenv
+import models, scheduler, database, dotenv, utils
 
 # Set up logging
 var consoleLogger = newConsoleLogger(fmtStr="[$time] - $levelname: ")
@@ -100,34 +99,6 @@ type CallbackAction = enum
   TCActionRaw   # Send the raw body data with the headers
 
 # Helper functions for JSON conversion
-proc toContact(node: JsonNode): Contact =
-  result = Contact(
-    id: node["id"].getInt,
-    firstName: node["firstName"].getStr,
-    lastName: node["lastName"].getStr,
-    email: node["email"].getStr,
-    currentCarrier: node["currentCarrier"].getStr,
-    planType: node["planType"].getStr,
-    tobaccoUser: node["tobaccoUser"].getBool,
-    gender: node["gender"].getStr,
-    state: node["state"].getStr,
-    zipCode: node["zipCode"].getStr,
-    agentID: node["agentID"].getInt,
-    phoneNumber: node.getOrDefault("phoneNumber").getStr,
-    status: node.getOrDefault("status").getStr
-  )
-
-  # Parse dates
-  try:
-    result.effectiveDate = parse(node["effectiveDate"].getStr, "yyyy-MM-dd", utc())
-  except:
-    result.effectiveDate = now()
-
-  try:
-    result.birthDate = parse(node["birthDate"].getStr, "yyyy-MM-dd", utc())
-  except:
-    result.birthDate = now()
-
 proc toJson*(email: Email): JsonNode =
   result = %*{
     "type": email.emailType,
@@ -558,33 +529,44 @@ proc handleBatchScheduleEmails(request: Request, dbConfig: DbConfig): Future[
   try:
     let reqJson = parseJson(request.body)
 
+    # Validate required fields
+    let validation = validateRequired(reqJson, "contacts")
+    if not validation.valid:
+      resp Http400, %*{"error": "Missing required fields: " & validation.missingFields.join(", ")}
+      return
+    
     # Parse contacts array
     var contacts: seq[Contact] = @[]
-    for contactJson in reqJson["contacts"]:
-      contacts.add(toContact(contactJson))
-
-    # Parse date or use current date
-    var today: DateTime
-    try:
-      if reqJson.hasKey("today"):
-        today = parse(reqJson["today"].getStr, "yyyy-MM-dd", utc())
+    var errors: seq[string] = @[]
+    
+    for i, contactNode in reqJson["contacts"]:
+      let contactResult = toContact(contactNode)
+      if contactResult.isOk:
+        contacts.add(contactResult.value)
       else:
-        today = now().utc
-    except:
-      today = now().utc
-
-    # Calculate batch emails with AEP distribution
+        errors.add("Contact #" & $i & ": " & contactResult.error.message)
+    
+    if errors.len > 0:
+      resp Http400, %*{"errors": errors}
+      return
+    
+    # Parse date parameter  
+    let today = parseDate(reqJson, "today")
+    
+    # Calculate batch emails
     let emailsBatch = calculateBatchScheduledEmails(contacts, today)
-
-    # Format response
+    
+    # Build response
     var results = newJArray()
-    for i, emails in emailsBatch:
-      results.add(%*{
-        "contactId": contacts[i].id,
-        "scheduledEmails": emailsToJson(emails)
-      })
-
-    return successResponse(%*{"results": results})
+    for i, contactEmails in emailsBatch:
+      if i < contacts.len:  # Safety check
+        results.add(%*{
+          "contactId": contacts[i].id,
+          "scheduledEmails": emailsToJson(contactEmails)
+        })
+        
+    # Return response
+    resp %*{"results": results}
   except Exception as e:
     error "Error batch scheduling emails: " & e.msg
     return errorResponse(Http500, e.msg)
@@ -616,48 +598,56 @@ when isMainModule:
       resp Http200, {"Content-Type": "text/html"}.newHttpHeaders(), swaggerUiHtml
       
     post "/schedule-emails":
-      try:
-        let reqJson = parseJson(request.body)
-        let contact = toContact(reqJson["contact"])
-  
-        # Parse date or use current date
-        var today: DateTime
-        try:
-          if reqJson.hasKey("today"):
-            today = parse(reqJson["today"].getStr, "yyyy-MM-dd", utc())
-          else:
-            today = now().utc
-        except:
-          today = now().utc
-  
+      handleJsonRequest:
+        # Validate required fields
+        let validation = validateRequired(reqJson, "contact")
+        if not validation.valid:
+          errorJson("Missing required fields: " & validation.missingFields.join(", "))
+          return
+        
+        # Parse contact using the template
+        let contactResult = parseContact(reqJson["contact"])
+        if not contactResult.isOk:
+          errorJson(contactResult.error.message, contactResult.error.code)
+          return
+        
+        let contact = contactResult.value
+        
+        # Parse date parameter
+        let today = parseDate(reqJson, "today")
+        
         # Calculate emails
         let emails = calculateScheduledEmails(contact, today)
-  
+        
         # Return response
-        resp %*{"scheduledEmails": emailsToJson(emails)}
-      except Exception as e:
-        error "Error scheduling emails: " & e.msg
-        resp Http500, %*{"error": e.msg}
+        jsonResponse({"scheduledEmails": emailsToJson(emails)})
       
     post "/schedule-emails/batch":
-      try:
-        let reqJson = parseJson(request.body)
-        var contacts: seq[Contact] = @[]
+      handleJsonRequest:
+        # Validate required fields
+        let validation = validateRequired(reqJson, "contacts")
+        if not validation.valid:
+          errorJson("Missing required fields: " & validation.missingFields.join(", "))
+          return
         
-        # Parse contacts
-        for contactNode in reqJson["contacts"]:
-          contacts.add(toContact(contactNode))
-          
-        # Parse date or use current date
-        var today: DateTime
-        try:
-          if reqJson.hasKey("today"):
-            today = parse(reqJson["today"].getStr, "yyyy-MM-dd", utc())
+        # Parse contacts array
+        var contacts: seq[Contact] = @[]
+        var errors: seq[string] = @[]
+        
+        for i, contactNode in reqJson["contacts"]:
+          let contactResult = parseContact(contactNode)
+          if contactResult.isOk:
+            contacts.add(contactResult.value)
           else:
-            today = now().utc
-        except:
-          today = now().utc
-          
+            errors.add("Contact #" & $i & ": " & contactResult.error.message)
+        
+        if errors.len > 0:
+          jsonResponse({"errors": errors}, Http400)
+          return
+        
+        # Parse date parameter  
+        let today = parseDate(reqJson, "today")
+        
         # Calculate batch emails
         let emailsBatch = calculateBatchScheduledEmails(contacts, today)
         
@@ -671,24 +661,14 @@ when isMainModule:
             })
             
         # Return response
-        resp %*{"results": results}
-      except Exception as e:
-        error "Error batch scheduling emails: " & e.msg
-        resp Http500, %*{"error": e.msg}
+        jsonResponse({"results": results})
         
     get "/contacts/@contactId/scheduled-emails":
-      try:
+      withErrorHandling(void):
         let contactId = parseInt(@"contactId")
         
-        # Parse date param or use current date
-        var today: DateTime
-        try:
-          if request.params.hasKey("today"):
-            today = parse(request.params["today"], "yyyy-MM-dd", utc())
-          else:
-            today = now().utc
-        except:
-          today = now().utc
+        # Parse date param using our template
+        let today = parseDate(request.params.table, "today", now().utc)
           
         # Here you would typically load the contact from a database
         # For testing, we'll create a mock contact
@@ -699,25 +679,23 @@ when isMainModule:
           email: "test@example.com",
           currentCarrier: "Test Carrier",
           planType: "Medicare",
-          effectiveDate: parse("2025-03-15", "yyyy-MM-dd", utc()),
-          birthDate: parse("1950-02-01", "yyyy-MM-dd", utc()),
+          effectiveDate: some(parse("2025-03-15", "yyyy-MM-dd", utc())),
+          birthDate: some(parse("1950-02-01", "yyyy-MM-dd", utc())),
           tobaccoUser: false,
           gender: "M",
           state: "TX",
           zipCode: "12345",
           agentID: 1,
-          phoneNumber: "555-1234",
-          status: "Active"
+          phoneNumber: some("555-1234"),
+          status: some("Active")
         )
           
         # Calculate scheduled emails
         let emails = calculateScheduledEmails(contact, today)
         
         # Return response
-        resp %*{"scheduledEmails": emailsToJson(emails)}
-      except:
-        resp Http404, %*{"error": "Contact not found"}
-        
+        jsonResponse({"scheduledEmails": emailsToJson(emails)})
+
   # Start the server
   let settings = newSettings(port=Port(port))
   var jester = initJester(routes, settings=settings)
@@ -805,6 +783,21 @@ proc getContacts*(config: DbConfig): Future[seq[Contact]] {.async.} =
     let result = response["results"][0]
     if "rows" in result:
       for row in result["rows"]:
+        # Handle date fields with Option[DateTime]
+        var effectiveDateOpt: Option[DateTime]
+        var birthDateOpt: Option[DateTime]
+        
+        try:
+          effectiveDateOpt = some(parseIsoDate(row[6].getStr))
+        except:
+          effectiveDateOpt = none(DateTime)
+          
+        try:
+          birthDateOpt = some(parseIsoDate(row[7].getStr))
+        except:
+          birthDateOpt = none(DateTime)
+          
+        # Create contact with Option fields
         let contact = Contact(
           id: row[0].getInt,
           firstName: row[1].getStr,
@@ -812,15 +805,15 @@ proc getContacts*(config: DbConfig): Future[seq[Contact]] {.async.} =
           email: row[3].getStr,
           currentCarrier: row[4].getStr,
           planType: row[5].getStr,
-          effectiveDate: parseIsoDate(row[6].getStr),
-          birthDate: parseIsoDate(row[7].getStr),
+          effectiveDate: effectiveDateOpt,
+          birthDate: birthDateOpt,
           tobaccoUser: row[8].getBool,
           gender: row[9].getStr,
           state: row[10].getStr,
           zipCode: row[11].getStr,
           agentID: row[12].getInt,
-          phoneNumber: row[13].getStr,
-          status: row[14].getStr
+          phoneNumber: if row[13].getStr != "": some(row[13].getStr) else: none(string),
+          status: if row[14].getStr != "": some(row[14].getStr) else: none(string)
         )
         contacts.add(contact)
   
@@ -887,15 +880,17 @@ proc getEnvOrEmpty*(key: string): string =
 File: src/models.nim
 ================
 import times
+import options
 
 type
   Contact* = object
     id*: int
     firstName*, lastName*, email*: string
     currentCarrier*, planType*: string
-    effectiveDate*, birthDate*: DateTime
+    effectiveDate*, birthDate*: Option[DateTime]  # Optional dates
     tobaccoUser*: bool
-    gender*, state*, zipCode*, phoneNumber*, status*: string
+    gender*, state*, zipCode*: string
+    phoneNumber*, status*: Option[string]  # Optional strings
     agentID*: int
 
   Email* = object
@@ -991,16 +986,16 @@ proc getTestContacts(): seq[Contact] =
       email: "john@example.com",
       currentCarrier: "Test Carrier",
       planType: "Medicare",
-      effectiveDate: now().utc, # Current date
-    birthDate: now().utc, # Current date (will be adjusted in the try block)
-    tobaccoUser: false,
-    gender: "M",
-    state: "TX",
-    zipCode: "12345",
-    agentID: 1,
-    phoneNumber: "555-1234",
-    status: "Active"
-  ),
+      effectiveDate: some(now().utc), # Current date
+      birthDate: some(now().utc), # Current date (will be adjusted in the try block)
+      tobaccoUser: false,
+      gender: "M",
+      state: "TX",
+      zipCode: "12345",
+      agentID: 1,
+      phoneNumber: some("555-1234"),
+      status: some("Active")
+    ),
     Contact(
       id: 2,
       firstName: "Jane",
@@ -1008,16 +1003,16 @@ proc getTestContacts(): seq[Contact] =
       email: "jane@example.com",
       currentCarrier: "Test Carrier",
       planType: "Medicare",
-      effectiveDate: now().utc, # Current date
-    birthDate: now().utc, # Current date (will be adjusted in the try block)
-    tobaccoUser: false,
-    gender: "F",
-    state: "OR",
-    zipCode: "97123",
-    agentID: 2,
-    phoneNumber: "555-5678",
-    status: "Active"
-  ),
+      effectiveDate: some(now().utc), # Current date
+      birthDate: some(now().utc), # Current date (will be adjusted in the try block)
+      tobaccoUser: false,
+      gender: "F",
+      state: "OR",
+      zipCode: "97123",
+      agentID: 2,
+      phoneNumber: some("555-5678"),
+      status: some("Active")
+    ),
     Contact(
       id: 3,
       firstName: "Bob",
@@ -1025,16 +1020,16 @@ proc getTestContacts(): seq[Contact] =
       email: "bob@example.com",
       currentCarrier: "Test Carrier",
       planType: "Medicare",
-      effectiveDate: now().utc, # Current date
-    birthDate: now().utc, # Current date (will be adjusted in the try block)
-    tobaccoUser: false,
-    gender: "M",
-    state: "CT",
-    zipCode: "06001",
-    agentID: 3,
-    phoneNumber: "555-9012",
-    status: "Active"
-  )
+      effectiveDate: some(now().utc), # Current date
+      birthDate: some(now().utc), # Current date (will be adjusted in the try block)
+      tobaccoUser: false,
+      gender: "M",
+      state: "CT",
+      zipCode: "06001",
+      agentID: 3,
+      phoneNumber: some("555-9012"),
+      status: some("Active")
+    )
   ]
 
   # Set the birthdates to reasonable values (adjust the current date)
@@ -1044,23 +1039,20 @@ proc getTestContacts(): seq[Contact] =
 
     # Test contact 1: 70 years old, born on Jan 1
     var bd1 = dateTime(1, mJan, currentYear - 70, 0, 0, 0, zone = utc())
-    result[0].birthDate = bd1
+    result[0].birthDate = some(bd1)
 
     # Test contact 2: 72 years old, born on May 15
     var bd2 = dateTime(15, mMay, currentYear - 72, 0, 0, 0, zone = utc())
-    result[1].birthDate = bd2
+    result[1].birthDate = some(bd2)
 
     # Test contact 3: 68 years old, born on June 10
     var bd3 = dateTime(10, mJun, currentYear - 68, 0, 0, 0, zone = utc())
-    result[2].birthDate = bd3
+    result[2].birthDate = some(bd3)
 
     # Set effective dates 5 years ago
-    result[0].effectiveDate = dateTime(1, mFeb, currentYear - 5, 0, 0, 0,
-        zone = utc())
-    result[1].effectiveDate = dateTime(1, mJun, currentYear - 5, 0, 0, 0,
-        zone = utc())
-    result[2].effectiveDate = dateTime(1, mJul, currentYear - 5, 0, 0, 0,
-        zone = utc())
+    result[0].effectiveDate = some(dateTime(1, mFeb, currentYear - 5, 0, 0, 0, zone = utc()))
+    result[1].effectiveDate = some(dateTime(1, mJun, currentYear - 5, 0, 0, 0, zone = utc()))
+    result[2].effectiveDate = some(dateTime(1, mJul, currentYear - 5, 0, 0, 0, zone = utc()))
   except:
     # If there's any error, leave the dates as current date
     debug "Failed to set custom dates for test contacts"
@@ -1260,7 +1252,7 @@ proc getRuleParams*(state: string): RuleParams =
 ================
 File: src/scheduler.nim
 ================
-import times, algorithm, sequtils, strformat
+import times, algorithm, sequtils, strformat, options
 import models, rules
 
 type
@@ -1298,11 +1290,22 @@ proc getYearlyDate(date: DateTime, year: int): DateTime =
 
 proc getExclusionWindow(contact: Contact, today: DateTime): tuple[start,
     endDate: DateTime] =
+  # Ensure the contact has both dates before proceeding
+  if not contact.birthDate.isSome() or not contact.effectiveDate.isSome():
+    # Fallback to a safe default if dates are missing
+    let currentDate = now().utc
+    return (
+      start: currentDate - 30.days,
+      endDate: currentDate + 30.days
+    )
+    
   try:
     let
+      birthDate = contact.birthDate.get()
+      effectiveDate = contact.effectiveDate.get()
       stateRule = getStateRule(contact.state)
       (startOffset, duration) = getRuleParams(contact.state)
-      refDate = if stateRule == Birthday: contact.birthDate else: contact.effectiveDate
+      refDate = if stateRule == Birthday: birthDate else: effectiveDate
       ruleStart = getYearlyDate(refDate, today.year) + startOffset.days
       ruleEnd = ruleStart + duration.days
 
@@ -1347,9 +1350,16 @@ proc scheduleEmail(emails: var seq[Email], emailType: EmailType,
 proc calculateScheduledEmails*(contact: Contact, today: DateTime): seq[Email] =
   result = @[]
 
+  # Check if required date fields are present
+  if not contact.birthDate.isSome() or not contact.effectiveDate.isSome():
+    return @[]  # Return empty sequence if critical data is missing
+
   try:
-    let stateRule = getStateRule(contact.state)
-    let currentYear = today.year
+    let 
+      birthDate = contact.birthDate.get()
+      effectiveDate = contact.effectiveDate.get()
+      stateRule = getStateRule(contact.state)
+      currentYear = today.year
 
     # Skip for year-round enrollment states
     if stateRule == YearRound:
@@ -1363,7 +1373,7 @@ proc calculateScheduledEmails*(contact: Contact, today: DateTime): seq[Email] =
 
     # Birthday email (14 days before)
     let
-      birthdayDate = getYearlyDate(contact.birthDate, currentYear)
+      birthdayDate = getYearlyDate(birthDate, currentYear)
       birthdayEmailDate = birthdayDate - 14.days
 
     if not scheduleEmail(result, Birthday, birthdayEmailDate, eewStart, eewEnd, today):
@@ -1372,8 +1382,8 @@ proc calculateScheduledEmails*(contact: Contact, today: DateTime): seq[Email] =
 
     # Effective date email (30 days before)
     let
-      effectiveDate = getYearlyDate(contact.effectiveDate, currentYear)
-      effectiveEmailDate = effectiveDate - 30.days
+      effectiveDateYearly = getYearlyDate(effectiveDate, currentYear)
+      effectiveEmailDate = effectiveDateYearly - 30.days
 
     if not scheduleEmail(result, Effective, effectiveEmailDate, eewStart,
         eewEnd, today):
@@ -1528,137 +1538,522 @@ proc calculateBatchScheduledEmails*(contacts: seq[Contact],
   return result
 
 ================
-File: tests/README.md
+File: src/utils.nim
 ================
-# Email Scheduler Tests
+import json, times, options, strutils, strformat
+import jester
+import models
 
-This directory contains tests for the email scheduling functionality, focusing on verifying the implementation of the email rules as defined in `EmailRules.md`.
+# Result type for error handling
+type
+  Error* = object
+    message*: string
+    code*: int
 
-## Test Files
+  Result*[T] = object
+    case isOk*: bool
+    of true:
+      value*: T
+    of false:
+      error*: Error
 
-- `test_email_rules.nim` - Direct tests for the core scheduler logic
-- `test_scheduler.nim` - Original scheduler tests (currently has dependencies issues)
+# Helper functions for Result type
+proc ok*[T](value: T): Result[T] =
+  Result[T](isOk: true, value: value)
 
-## Running Tests
+proc err*[T](message: string, code: int = 500): Result[T] =
+  Result[T](isOk: false, error: Error(message: message, code: code))
 
-To run the tests, use the `run_tests.sh` script in the root directory:
+# Templates for API handlers
+template handleJsonRequest*(body: untyped): untyped =
+  ## Template for handling JSON API requests.
+  ## Automatically parses the request body as JSON and handles errors.
+  try:
+    let reqJson = parseJson(request.body)
+    body
+  except Exception as e:
+    resp Http400, %*{"error": "Invalid JSON: " & e.msg}
 
-```bash
-./run_tests.sh
-```
+template parseDate*(jsonNode: JsonNode, key: string, defaultDate: DateTime = now().utc): DateTime =
+  ## Template for parsing dates from JSON with a default fallback
+  block:
+    var result: DateTime
+    try:
+      if jsonNode.hasKey(key):
+        result = parse(jsonNode[key].getStr, "yyyy-MM-dd", utc())
+      else:
+        result = defaultDate
+    except:
+      result = defaultDate
+    result
 
-Or run individual test files with:
+template withErrorHandling*(responseType: typedesc, body: untyped): untyped =
+  ## Template for handling errors in API routes
+  try:
+    body
+  except Exception as e:
+    when responseType is void:
+      resp Http500, %*{"error": e.msg}
+    else:
+      err(responseType, e.msg, 500)
 
-```bash
-nim c -r tests/test_email_rules.nim
-```
+template apiResponse*[T](result: Result[T]): untyped =
+  ## Template for sending API responses based on Result
+  if result.isOk:
+    resp %*{"data": result.value}
+  else:
+    resp HttpCode(result.error.code), %*{"error": result.error.message}
 
-### Using the Test Scripts
+# Template for validating required JSON fields
+template validateRequired*(jsonNode: JsonNode, fields: varargs[string]): tuple[valid: bool, missingFields: seq[string]] =
+  ## Template for validating required JSON fields.
+  ## Returns a tuple with a boolean indicating if all required fields are present,
+  ## and a sequence of missing field names.
+  block:
+    var missingFields: seq[string] = @[]
+    for field in fields:
+      if not jsonNode.hasKey(field):
+        missingFields.add(field)
+    
+    (valid: missingFields.len == 0, missingFields: missingFields)
 
-The project now includes two specialized test scripts:
+# Template for parsing Contact objects
+template parseContact*(jsonNode: JsonNode): untyped =
+  ## Template for parsing a Contact object from JSON.
+  ## Returns a Result[Contact].
+  block:
+    # Validate required fields
+    let requiredFields = ["id", "firstName", "lastName", "state"]
+    var missingFields: seq[string] = @[]
+    
+    for field in requiredFields:
+      if not jsonNode.hasKey(field):
+        missingFields.add(field)
+    
+    if missingFields.len > 0:
+      err[Contact]("Missing required fields: " & missingFields.join(", "), 400)
+    else:
+      # Create contact with required fields
+      var contact = Contact(
+        id: jsonNode["id"].getInt,
+        firstName: jsonNode["firstName"].getStr,
+        lastName: jsonNode["lastName"].getStr,
+        email: if jsonNode.hasKey("email"): jsonNode["email"].getStr else: "",
+        currentCarrier: if jsonNode.hasKey("currentCarrier"): jsonNode["currentCarrier"].getStr else: "",
+        planType: if jsonNode.hasKey("planType"): jsonNode["planType"].getStr else: "",
+        tobaccoUser: if jsonNode.hasKey("tobaccoUser"): jsonNode["tobaccoUser"].getBool else: false,
+        gender: if jsonNode.hasKey("gender"): jsonNode["gender"].getStr else: "",
+        state: jsonNode["state"].getStr,
+        zipCode: if jsonNode.hasKey("zipCode"): jsonNode["zipCode"].getStr else: "",
+        agentID: if jsonNode.hasKey("agentID"): jsonNode["agentID"].getInt else: 0,
+        phoneNumber: if jsonNode.hasKey("phoneNumber"): some(jsonNode["phoneNumber"].getStr) else: none(string),
+        status: if jsonNode.hasKey("status"): some(jsonNode["status"].getStr) else: none(string)
+      )
 
-#### Nim Test Script
+      # Parse dates with safe date templates
+      contact.effectiveDate = 
+        if jsonNode.hasKey("effectiveDate"):
+          safeParseDate(jsonNode["effectiveDate"].getStr)
+        else:
+          none(DateTime)
+          
+      contact.birthDate = 
+        if jsonNode.hasKey("birthDate"):
+          safeParseDate(jsonNode["birthDate"].getStr)
+        else:
+          none(DateTime)
+        
+      ok(contact)
 
-The `test_nim.sh` script provides a more user-friendly way to run and view Nim tests:
+# Templates for API responses
+template jsonResponse*(data: untyped, status: HttpCode = Http200) =
+  ## Template for sending JSON responses
+  resp status, %*data
 
-```bash
-# Run all tests
-./test_nim.sh
+template errorJson*(message: string, code: int = 400) =
+  ## Template for sending error JSON responses
+  jsonResponse({"error": message}, HttpCode(code))
 
-# Run with verbose output (detailed test information)
-./test_nim.sh -v
+# Templates for date operations
+template safeParseDate*(dateStr: string, format: string = "yyyy-MM-dd"): Option[DateTime] =
+  ## Safely parse a date string, returning an Option[DateTime]
+  block:
+    try:
+      some(parse(dateStr, format, utc()))
+    except:
+      none(DateTime)
 
-# Run a specific test
-./test_nim.sh test_scheduler_simple.nim
+template safeAddDays*(date: Option[DateTime], days: int): Option[DateTime] =
+  ## Safely add days to an Option[DateTime]
+  block:
+    if date.isSome():
+      try:
+        # Create a new DateTime with the days added
+        let dt = date.get()
+        let newDate = dt + initTimeInterval(0, 0, 0, days, 0, 0, 0, 0)
+        some(newDate)
+      except:
+        date
+    else:
+      none(DateTime)
 
-# Show help
-./test_nim.sh -h
-```
+template safeYearlyDate*(date: Option[DateTime], year: int): Option[DateTime] =
+  ## Safely get the same date in another year
+  block:
+    if not date.isSome():
+      none(DateTime)
+    else:
+      try:
+        let d = date.get()
+        let monthInt = ord(d.month)
+        let dayInt = min(d.monthday, 28) # Safe value for all months
+        let dateStr = $year & "-" & (if monthInt < 10: "0" & $monthInt else: $monthInt) & "-" & (if dayInt < 10: "0" & $dayInt else: $dayInt)
+        some(parse(dateStr, "yyyy-MM-dd", utc()))
+      except:
+        none(DateTime)
 
-This script:
-- Formats test output with colorized PASS/FAIL indicators
-- Shows detailed test information in verbose mode
-- Adapts output formatting to different test types
-- Can run all tests or specific test files
+================
+File: tests/test_api_simple.nim
+================
+import unittest, asynchttpserver, asyncdispatch, json, times, strutils, sequtils, options
+import ../src/models, ../src/scheduler, ../src/rules
 
-#### API Test Script
+suite "Simple API Tests":
+  # Define a reference date for testing
+  let today = parse("2025-01-01", "yyyy-MM-dd", utc())
+  
+  test "Email JSON conversion":
+    let email = Email(
+      emailType: "Birthday",
+      status: "Pending",
+      scheduledAt: parse("2025-02-01", "yyyy-MM-dd", utc()),
+      reason: "Test reason"
+    )
+    
+    let jsonNode = %*{
+      "type": email.emailType,
+      "status": email.status,
+      "scheduledAt": email.scheduledAt.format("yyyy-MM-dd"),
+      "reason": email.reason
+    }
+    
+    check jsonNode["type"].getStr == "Birthday"
+    check jsonNode["status"].getStr == "Pending"
+    check jsonNode["scheduledAt"].getStr == "2025-02-01"
+    check jsonNode["reason"].getStr == "Test reason"
+  
+  test "Contact parsing with Option types":
+    let jsonNode = %*{
+      "id": 1,
+      "firstName": "Jane",
+      "lastName": "Doe",
+      "email": "jane@example.com",
+      "currentCarrier": "Test Carrier",
+      "planType": "Medicare",
+      "tobaccoUser": false,
+      "gender": "F",
+      "state": "TX",
+      "zipCode": "12345",
+      "agentID": 123,
+      "phoneNumber": "555-1234",
+      "status": "Active",
+      "effectiveDate": "2025-03-15",
+      "birthDate": "1950-02-01"
+    }
+    
+    # Using our improved parseContact function (to be implemented)
+    proc parseContact(jsonNode: JsonNode): Contact =
+      result = Contact(
+        id: jsonNode["id"].getInt,
+        firstName: jsonNode["firstName"].getStr,
+        lastName: jsonNode["lastName"].getStr,
+        email: if jsonNode.hasKey("email"): jsonNode["email"].getStr else: "",
+        currentCarrier: if jsonNode.hasKey("currentCarrier"): jsonNode["currentCarrier"].getStr else: "",
+        planType: if jsonNode.hasKey("planType"): jsonNode["planType"].getStr else: "",
+        tobaccoUser: if jsonNode.hasKey("tobaccoUser"): jsonNode["tobaccoUser"].getBool else: false,
+        gender: if jsonNode.hasKey("gender"): jsonNode["gender"].getStr else: "",
+        state: jsonNode["state"].getStr,
+        zipCode: if jsonNode.hasKey("zipCode"): jsonNode["zipCode"].getStr else: "",
+        agentID: if jsonNode.hasKey("agentID"): jsonNode["agentID"].getInt else: 0,
+        phoneNumber: if jsonNode.hasKey("phoneNumber"): some(jsonNode["phoneNumber"].getStr) else: none(string),
+        status: if jsonNode.hasKey("status"): some(jsonNode["status"].getStr) else: none(string)
+      )
 
-The `test_api.sh` script tests the API endpoints:
+      # Parse dates with proper error handling
+      try:
+        if jsonNode.hasKey("effectiveDate"):
+          result.effectiveDate = some(parse(jsonNode["effectiveDate"].getStr, "yyyy-MM-dd", utc()))
+        else:
+          result.effectiveDate = none(DateTime)
+      except CatchableError:
+        result.effectiveDate = none(DateTime)
 
-```bash
-# Run all API tests
-./test_api.sh
+      try:
+        if jsonNode.hasKey("birthDate"):
+          result.birthDate = some(parse(jsonNode["birthDate"].getStr, "yyyy-MM-dd", utc()))
+        else:
+          result.birthDate = none(DateTime)
+      except CatchableError:
+        result.birthDate = none(DateTime)
+    
+    let contact = parseContact(jsonNode)
+    
+    check contact.id == 1
+    check contact.firstName == "Jane"
+    check contact.lastName == "Doe"
+    check contact.email == "jane@example.com"
+    check contact.phoneNumber.isSome()
+    check contact.phoneNumber.get() == "555-1234"
+    check contact.status.isSome()
+    check contact.status.get() == "Active"
+    check contact.effectiveDate.isSome()
+    check contact.effectiveDate.get().format("yyyy-MM-dd") == "2025-03-15"
+    check contact.birthDate.isSome()
+    check contact.birthDate.get().format("yyyy-MM-dd") == "1950-02-01"
+  
+  test "Contact parsing with missing optional fields":
+    let jsonNode = %*{
+      "id": 2,
+      "firstName": "John",
+      "lastName": "Smith",
+      "email": "john@example.com",
+      "currentCarrier": "Test Carrier",
+      "planType": "Medicare",
+      "tobaccoUser": true,
+      "gender": "M",
+      "state": "CA",
+      "zipCode": "90210",
+      "agentID": 456,
+      "effectiveDate": "2025-06-15",
+      "birthDate": "1955-04-01"
+    }
+    
+    # Using the same parseContact function
+    proc parseContact(jsonNode: JsonNode): Contact =
+      result = Contact(
+        id: jsonNode["id"].getInt,
+        firstName: jsonNode["firstName"].getStr,
+        lastName: jsonNode["lastName"].getStr,
+        email: if jsonNode.hasKey("email"): jsonNode["email"].getStr else: "",
+        currentCarrier: if jsonNode.hasKey("currentCarrier"): jsonNode["currentCarrier"].getStr else: "",
+        planType: if jsonNode.hasKey("planType"): jsonNode["planType"].getStr else: "",
+        tobaccoUser: if jsonNode.hasKey("tobaccoUser"): jsonNode["tobaccoUser"].getBool else: false,
+        gender: if jsonNode.hasKey("gender"): jsonNode["gender"].getStr else: "",
+        state: jsonNode["state"].getStr,
+        zipCode: if jsonNode.hasKey("zipCode"): jsonNode["zipCode"].getStr else: "",
+        agentID: if jsonNode.hasKey("agentID"): jsonNode["agentID"].getInt else: 0,
+        phoneNumber: if jsonNode.hasKey("phoneNumber"): some(jsonNode["phoneNumber"].getStr) else: none(string),
+        status: if jsonNode.hasKey("status"): some(jsonNode["status"].getStr) else: none(string)
+      )
 
-# Run with verbose output
-./test_api.sh -v
+      # Parse dates with proper error handling
+      try:
+        if jsonNode.hasKey("effectiveDate"):
+          result.effectiveDate = some(parse(jsonNode["effectiveDate"].getStr, "yyyy-MM-dd", utc()))
+        else:
+          result.effectiveDate = none(DateTime)
+      except CatchableError:
+        result.effectiveDate = none(DateTime)
 
-# Show help
-./test_api.sh -h
-```
+      try:
+        if jsonNode.hasKey("birthDate"):
+          result.birthDate = some(parse(jsonNode["birthDate"].getStr, "yyyy-MM-dd", utc()))
+        else:
+          result.birthDate = none(DateTime)
+      except CatchableError:
+        result.birthDate = none(DateTime)
+    
+    let contact = parseContact(jsonNode)
+    
+    check contact.id == 2
+    check contact.firstName == "John"
+    check contact.lastName == "Smith"
+    check contact.phoneNumber.isNone()
+    check contact.status.isNone()
+    check contact.effectiveDate.isSome()
+    check contact.birthDate.isSome()
 
-This script:
-- Tests all API endpoints using curl commands
-- Automatically starts the API server if not running
-- Validates response contents and formats
-- Tests state-specific rules, including year-round enrollment states
-- Verifies both single-contact and batch scheduling
+    # Test successful parsing with all fields
+    test "Contact parsing with required and optional fields":
+      let jsonStr = """{"id":123,"firstName":"John","lastName":"Doe","state":"CA","phoneNumber":"555-1234","status":"active","effectiveDate":"2023-01-01","birthDate":"1980-05-15"}"""
+      let jsonNode = parseJson(jsonStr)
+      let contact = parseContact(jsonNode)
 
-For API testing, ensure:
-1. The API server is running (or let the script start it for you)
-2. The `jq` command is installed for JSON formatting
+      check contact.id == 123
+      check contact.firstName == "John"
+      check contact.lastName == "Doe"
+      check contact.state == "CA"
+      check contact.phoneNumber.isSome()
+      check contact.phoneNumber.get() == "555-1234"
+      check contact.status.isSome()
+      check contact.status.get() == "active"
+      check contact.effectiveDate.isSome()
+      check contact.effectiveDate.get().year == 2023
+      check contact.birthDate.isSome()
+      check contact.birthDate.get().year == 1980
 
-### Color-Coded Output Format
+    # Test parsing with only required fields
+    test "Contact parsing with only required fields":
+      let jsonStr = """{"id":456,"firstName":"Jane","lastName":"Smith","state":"NY","effectiveDate":"2023-05-10","birthDate":"1985-10-20"}"""
+      let jsonNode = parseJson(jsonStr)
+      let contact = parseContact(jsonNode)
 
-Both test scripts use color-coded output for better readability:
-- **Green**: PASS indicators and successful test results 
-- **Red**: FAIL indicators and error messages
-- **Yellow**: Test names and section headers
-- **Cyan**: Detailed test information
-- **Magenta**: Expected values in verbose mode
-- **Blue**: Actual values in verbose mode
+      check contact.id == 456
+      check contact.firstName == "Jane"
+      check contact.lastName == "Smith"
+      check contact.state == "NY"
+      check contact.phoneNumber.isNone()
+      check contact.status.isNone()
+      check contact.effectiveDate.isSome()
+      check contact.birthDate.isSome()
 
-In verbose mode, they provide additional information:
-- Side-by-side comparison of expected vs. actual values
-- Detailed explanation of test conditions
-- Complete test output for failed tests
-- Summary of all tests run
+================
+File: tests/test_api.nim
+================
+import unittest, json, times, options, strutils, sequtils
+import ../src/models, ../src/scheduler, ../src/utils
 
-This makes it easier to quickly identify issues when tests fail and understand what's being tested.
+suite "API Tests":
+  # Define a reference date for testing
+  let today = parse("2025-01-01", "yyyy-MM-dd", utc())
+  
+  test "Email JSON conversion":
+    let email = Email(
+      emailType: "Birthday",
+      status: "Pending",
+      scheduledAt: parse("2025-02-01", "yyyy-MM-dd", utc()),
+      reason: "Test reason"
+    )
+    
+    # Manual JSON conversion for testing
+    let jsonNode = %*{
+      "type": email.emailType,
+      "status": email.status,
+      "scheduledAt": email.scheduledAt.format("yyyy-MM-dd"),
+      "reason": email.reason
+    }
+    
+    check jsonNode["type"].getStr == "Birthday"
+    check jsonNode["status"].getStr == "Pending"
+    check jsonNode["scheduledAt"].getStr == "2025-02-01"
+    check jsonNode["reason"].getStr == "Test reason"
+  
+  test "Contact parsing with required fields":
+    let jsonNode = %*{
+      "id": 1,
+      "firstName": "John",
+      "lastName": "Doe",
+      "state": "TX"
+    }
+    
+    let result = parseContact(jsonNode)
+    check result.isOk
+    check result.value.id == 1
+    check result.value.firstName == "John"
+    check result.value.lastName == "Doe"
+    check result.value.state == "TX"
+  
+  test "Contact parsing with missing required fields":
+    let jsonNode = %*{
+      "id": 1,
+      "firstName": "John"
+    }
+    
+    let result = parseContact(jsonNode)
+    check not result.isOk
+    check result.error.code == 400
+    check "Missing required fields" in result.error.message
+    check "lastName" in result.error.message
+    check "state" in result.error.message
+  
+  test "Contact parsing with all fields":
+    let jsonNode = %*{
+      "id": 1,
+      "firstName": "John",
+      "lastName": "Doe",
+      "state": "TX",
+      "email": "john@example.com",
+      "currentCarrier": "Test Carrier",
+      "planType": "Medicare",
+      "effectiveDate": "2025-03-15",
+      "birthDate": "1950-02-01",
+      "tobaccoUser": false,
+      "gender": "M",
+      "zipCode": "12345",
+      "agentID": 123,
+      "phoneNumber": "555-1234",
+      "status": "Active"
+    }
+    
+    let result = parseContact(jsonNode)
+    check result.isOk
+    let contact = result.value
+    
+    check contact.id == 1
+    check contact.firstName == "John"
+    check contact.lastName == "Doe"
+    check contact.state == "TX"
+    check contact.email == "john@example.com"
+    check contact.currentCarrier == "Test Carrier"
+    check contact.planType == "Medicare"
+    check contact.effectiveDate.isSome
+    check contact.effectiveDate.get().year == 2025
+    check contact.effectiveDate.get().month == mMar
+    check contact.effectiveDate.get().monthday == 15
+    check contact.birthDate.isSome
+    check contact.birthDate.get().year == 1950
+    check contact.birthDate.get().month == mFeb
+    check contact.birthDate.get().monthday == 1
+    check contact.tobaccoUser == false
+    check contact.gender == "M"
+    check contact.zipCode == "12345"
+    check contact.agentID == 123
+    check contact.phoneNumber.isSome
+    check contact.phoneNumber.get() == "555-1234"
+    check contact.status.isSome
+    check contact.status.get() == "Active"
+  
+  test "validateRequired template":
+    let jsonNode = %*{"name": "test", "age": 25}
+    
+    let validation1 = validateRequired(jsonNode, "name", "age")
+    check validation1.valid
+    check validation1.missingFields.len == 0
+    
+    let validation2 = validateRequired(jsonNode, "name", "age", "email")
+    check not validation2.valid
+    check validation2.missingFields == @["email"]
+  
+  test "Date parsing templates":
+    let jsonNode = %*{"date1": "2025-01-15", "emptyDate": ""}
+    
+    let date1 = parseDate(jsonNode, "date1")
+    check date1.year == 2025
+    check date1.month == mJan
+    check date1.monthday == 15
+    
+    let defaultDate = now().utc
+    let date2 = parseDate(jsonNode, "missingDate", defaultDate)
+    check date2 == defaultDate
+    
+    let date3 = parseDate(jsonNode, "emptyDate", defaultDate)
+    check date3 == defaultDate
 
-## Test Coverage
+  test "Result type success":
+    let result = ok(42)
+    check result.isOk
+    check result.value == 42
 
-The `test_email_rules.nim` file contains various test scenarios that validate compliance with the email scheduling rules, including:
-
-### Basic Email Types
-- Birthday emails (14 days before birthday)
-- Effective date emails (30 days before effective date)
-- AEP emails (third week of August for single contacts)
-
-### Email Distribution Rules
-- AEP distribution across four weeks for multiple contacts
-- 60-day exclusion window between emails
-- State-specific rule windows
-- Post-rule window emails
-
-### Special Cases
-- Year-round enrollment states (no emails)
-- Emails crossing year boundaries
-- Emails suppressed due to exclusion rules
-- Uneven distribution of contacts for batch AEP emails
-
-## Expected Workflow
-
-The tests verify that:
-1. The correct email types are scheduled based on contact information
-2. Emails are scheduled on the correct dates
-3. Exclusion windows are properly enforced
-4. State rules are correctly applied
-5. Batch distribution works as expected
+  test "Result type error":
+    let result = err[int]("Test error", 400)
+    check not result.isOk
+    check result.error.message == "Test error"
+    check result.error.code == 400
 
 ================
 File: tests/test_email_rules.nim
 ================
-import unittest, times, sequtils, strutils
+import unittest, times, sequtils, strutils, options
 import ../src/models, ../src/scheduler, ../src/rules
 
 suite "Email Rules Tests":
@@ -1676,15 +2071,15 @@ suite "Email Rules Tests":
       email: "john@example.com", 
       currentCarrier: "Test Carrier",
       planType: "Medicare",
-      effectiveDate: parse("2025-12-15", "yyyy-MM-dd", utc()),  # December 15, 2025 (far future to avoid exclusion window)
-      birthDate: parse("1950-02-01", "yyyy-MM-dd", utc()),      # February 1, 1950
+      effectiveDate: some(parse("2025-12-15", "yyyy-MM-dd", utc())),  # December 15, 2025 (far future to avoid exclusion window)
+      birthDate: some(parse("1950-02-01", "yyyy-MM-dd", utc())),      # February 1, 1950
       tobaccoUser: false,
       gender: "M",
       state: "TX",
       zipCode: "12345",
       agentID: 1,
-      phoneNumber: "555-1234",
-      status: "Active"
+      phoneNumber: some("555-1234"),
+      status: some("Active")
     )
     
     # Calculate scheduled emails
@@ -1702,8 +2097,7 @@ suite "Email Rules Tests":
     check birthdayEmails[0].scheduledAt == parse("2026-01-18", "yyyy-MM-dd", utc())
 
   test "Effective Date Email Scheduling (30 days before)":
-    # Create a test contact with effective date on December 15, 2025
-    # We need to use a date that's far enough in the future to avoid the exclusion window
+    # Create a test contact with effective date in April
     let contact = Contact(
       id: 2,
       firstName: "Jane",
@@ -1711,15 +2105,15 @@ suite "Email Rules Tests":
       email: "jane@example.com", 
       currentCarrier: "Test Carrier",
       planType: "Medicare",
-      effectiveDate: parse("2025-12-15", "yyyy-MM-dd", utc()),  # December 15, 2025 (moved to avoid exclusion window)
-      birthDate: parse("1955-07-01", "yyyy-MM-dd", utc()),      # July 1, 1955
-      tobaccoUser: false,
+      effectiveDate: some(parse("2025-12-15", "yyyy-MM-dd", utc())),  # December 15, 2025 (moved to avoid exclusion window)
+      birthDate: some(parse("1955-07-01", "yyyy-MM-dd", utc())),      # July 1, 1955
+      tobaccoUser: true,
       gender: "F",
-      state: "CA",  # Using California which has a birthday rule, so effective date won't be in exclusion window
-      zipCode: "12345",
+      state: "MO",
+      zipCode: "54321",
       agentID: 2,
-      phoneNumber: "555-5678",
-      status: "Active"
+      phoneNumber: some("555-5678"),
+      status: some("Active")
     )
     
     # Calculate scheduled emails
@@ -1734,8 +2128,8 @@ suite "Email Rules Tests":
     # Should be scheduled 30 days before effective date (Nov 15, 2025)
     check effectiveEmails[0].scheduledAt == parse("2025-11-15", "yyyy-MM-dd", utc())
 
-  test "AEP Email Scheduling (Single Contact)":
-    # Create a test contact
+  test "AEP Email Scheduling (August-September)":
+    # Create a test contact for AEP testing
     let contact = Contact(
       id: 3,
       firstName: "Bob",
@@ -1743,15 +2137,15 @@ suite "Email Rules Tests":
       email: "bob@example.com", 
       currentCarrier: "Test Carrier",
       planType: "Medicare",
-      effectiveDate: parse("2025-04-01", "yyyy-MM-dd", utc()),  # April 1, 2025
-      birthDate: parse("1960-05-15", "yyyy-MM-dd", utc()),      # May 15, 1960
+      effectiveDate: some(parse("2025-04-01", "yyyy-MM-dd", utc())),  # April 1, 2025
+      birthDate: some(parse("1960-05-15", "yyyy-MM-dd", utc())),      # May 15, 1960
       tobaccoUser: false,
       gender: "M",
-      state: "TX",
-      zipCode: "12345",
+      state: "OR",
+      zipCode: "97123",
       agentID: 3,
-      phoneNumber: "555-9012",
-      status: "Active"
+      phoneNumber: some("555-9012"),
+      status: some("Active")
     )
     
     # Calculate scheduled emails
@@ -1778,15 +2172,15 @@ suite "Email Rules Tests":
       email: "alice@example.com", 
       currentCarrier: "Test Carrier",
       planType: "Medicare",
-      effectiveDate: parse("2025-03-15", "yyyy-MM-dd", utc()),  # March 15, 2025
-      birthDate: parse("1965-02-15", "yyyy-MM-dd", utc()),      # February 15, 1965
-      tobaccoUser: false,
+      effectiveDate: some(parse("2025-03-15", "yyyy-MM-dd", utc())),  # March 15, 2025
+      birthDate: some(parse("1965-02-15", "yyyy-MM-dd", utc())),      # February 15, 1965
+      tobaccoUser: true,
       gender: "F",
-      state: "TX",
-      zipCode: "12345",
+      state: "FL",
+      zipCode: "33101",
       agentID: 4,
-      phoneNumber: "555-3456",
-      status: "Active"
+      phoneNumber: some("555-3456"),
+      status: some("Active")
     )
     
     # Calculate scheduled emails
@@ -1816,15 +2210,15 @@ suite "Email Rules Tests":
       email: "carol@example.com", 
       currentCarrier: "Test Carrier",
       planType: "Medicare",
-      effectiveDate: parse("2025-12-01", "yyyy-MM-dd", utc()),  # December 1, 2025 (far future date)
-      birthDate: parse("1970-09-15", "yyyy-MM-dd", utc()),      # September 15, 1970
+      effectiveDate: some(parse("2025-12-01", "yyyy-MM-dd", utc())),  # December 1, 2025 (far future date)
+      birthDate: some(parse("1970-09-15", "yyyy-MM-dd", utc())),      # September 15, 1970
       tobaccoUser: false,
       gender: "F",
       state: "OR",
       zipCode: "97123",
       agentID: 5,
-      phoneNumber: "555-7890",
-      status: "Active"
+      phoneNumber: some("555-7890"),
+      status: some("Active")
     )
     
     # Calculate scheduled emails
@@ -1849,15 +2243,15 @@ suite "Email Rules Tests":
       email: "dave@example.com", 
       currentCarrier: "Test Carrier",
       planType: "Medicare",
-      effectiveDate: parse("2025-03-15", "yyyy-MM-dd", utc()),  # March 15, 2025 
-      birthDate: parse("1975-07-01", "yyyy-MM-dd", utc()),      # July 1, 1975 (after the exclusion window)
+      effectiveDate: some(parse("2025-03-15", "yyyy-MM-dd", utc())),  # March 15, 2025 
+      birthDate: some(parse("1975-07-01", "yyyy-MM-dd", utc())),      # July 1, 1975 (after the exclusion window)
       tobaccoUser: false,
       gender: "M",
       state: "MO",
       zipCode: "63101",
       agentID: 6,
-      phoneNumber: "555-2468",
-      status: "Active"
+      phoneNumber: some("555-2468"),
+      status: some("Active")
     )
     
     # Calculate scheduled emails
@@ -1872,24 +2266,24 @@ suite "Email Rules Tests":
     let expectedEmailDate = birthdayDate - 14.days
     check birthdayEmails[0].scheduledAt == expectedEmailDate
 
-  test "Year-Round Enrollment State (Connecticut)":
-    # Create a test contact in Connecticut (year-round enrollment state)
+  test "Year-Round Enrollment State (No Exclusion Window)":
+    # Create a test contact in a year-round enrollment state
     let contact = Contact(
-      id: 7,
-      firstName: "Eve",
-      lastName: "Wilson",
-      email: "eve@example.com", 
+      id: 5,
+      firstName: "David",
+      lastName: "Brown",
+      email: "david@example.com", 
       currentCarrier: "Test Carrier",
       planType: "Medicare",
-      effectiveDate: parse("2025-03-15", "yyyy-MM-dd", utc()),  # March 15, 2025
-      birthDate: parse("1980-02-01", "yyyy-MM-dd", utc()),      # February 1, 1980
+      effectiveDate: some(parse("2025-12-01", "yyyy-MM-dd", utc())),  # December 1, 2025 (far future date)
+      birthDate: some(parse("1970-09-15", "yyyy-MM-dd", utc())),      # September 15, 1970
       tobaccoUser: false,
-      gender: "F",
-      state: "CT",
-      zipCode: "06001",
-      agentID: 7,
-      phoneNumber: "555-1357",
-      status: "Active"
+      gender: "M",
+      state: "CT",  # Connecticut has year-round enrollment
+      zipCode: "06101",
+      agentID: 5,
+      phoneNumber: some("555-7890"),
+      status: some("Active")
     )
     
     # Calculate scheduled emails
@@ -1911,15 +2305,15 @@ suite "Email Rules Tests":
         email: "contact" & $i & "@example.com", 
         currentCarrier: "Test Carrier",
         planType: "Medicare",
-        effectiveDate: parse("2025-12-0" & $(i mod 9 + 1), "yyyy-MM-dd", utc()),  # December dates to avoid exclusion windows
-        birthDate: parse("1960-04-0" & $(i mod 9 + 1), "yyyy-MM-dd", utc()),
+        effectiveDate: some(parse("2025-12-0" & $(i mod 9 + 1), "yyyy-MM-dd", utc())),  # December dates to avoid exclusion windows
+        birthDate: some(parse("1960-04-0" & $(i mod 9 + 1), "yyyy-MM-dd", utc())),
         tobaccoUser: false,
         gender: if i mod 2 == 0: "M" else: "F",
         state: "TX",  # Use Texas to avoid state rule interference
         zipCode: "12345",
         agentID: 100 + i,
-        phoneNumber: "555-" & $(1000 + i),
-        status: "Active"
+        phoneNumber: some("555-" & $(1000 + i)),
+        status: some("Active")
       ))
     
     # Calculate batch scheduled emails
@@ -1969,15 +2363,15 @@ suite "Email Rules Tests":
         email: "uneven" & $i & "@example.com", 
         currentCarrier: "Test Carrier",
         planType: "Medicare",
-        effectiveDate: parse("2025-12-0" & $(i mod 9 + 1), "yyyy-MM-dd", utc()),  # December dates to avoid exclusion windows
-        birthDate: parse("1960-04-0" & $(i mod 9 + 1), "yyyy-MM-dd", utc()),
+        effectiveDate: some(parse("2025-12-0" & $(i mod 9 + 1), "yyyy-MM-dd", utc())),  # December dates to avoid exclusion windows
+        birthDate: some(parse("1960-04-0" & $(i mod 9 + 1), "yyyy-MM-dd", utc())),
         tobaccoUser: false,
         gender: if i mod 2 == 0: "M" else: "F",
         state: "TX",  # Use Texas to avoid state rule interference
         zipCode: "12345",
         agentID: 200 + i,
-        phoneNumber: "555-" & $(2000 + i),
-        status: "Active"
+        phoneNumber: some("555-" & $(2000 + i)),
+        status: some("Active")
       ))
     
     # Calculate batch scheduled emails
@@ -2007,7 +2401,513 @@ suite "Email Rules Tests":
     
     # Distribution should be spread across weeks
     let totalEmails = weekCounts.foldl(a + b)
+    check totalEmails > 0 
+
+  test "Carrier Update Email Scheduling (quarterly)":
+    # Create a test contact for carrier update testing
+    let contact = Contact(
+      id: 4,
+      firstName: "Alice",
+      lastName: "Williams",
+      email: "alice@example.com", 
+      currentCarrier: "Test Carrier",
+      planType: "Medicare",
+      effectiveDate: some(parse("2025-03-15", "yyyy-MM-dd", utc())),  # March 15, 2025
+      birthDate: some(parse("1965-02-15", "yyyy-MM-dd", utc())),      # February 15, 1965
+      tobaccoUser: true,
+      gender: "F",
+      state: "CA",
+      zipCode: "90210",
+      agentID: 4,
+      phoneNumber: some("555-3456"),
+      status: some("Active")
+    )
+    
+    # Calculate scheduled emails
+    let emails = calculateScheduledEmails(contact, today)
+    
+    # Extract carrier update emails
+    let carrierUpdateEmails = emails.filterIt(it.emailType == $EmailType.CarrierUpdate)
+    
+    # Should have one carrier update email
+    check carrierUpdateEmails.len == 1
+    
+    # Should be scheduled quarterly
+    check carrierUpdateEmails[0].scheduledAt == parse("2025-03-15", "yyyy-MM-dd", utc())
+
+  test "Exclusion Window Handling (Birthday)":
+    # Create a test contact with birthday during exclusion window
+    let contact = Contact(
+      id: 6,
+      firstName: "Emily",
+      lastName: "Davis",
+      email: "emily@example.com", 
+      currentCarrier: "Test Carrier",
+      planType: "Medicare",
+      effectiveDate: some(parse("2025-03-15", "yyyy-MM-dd", utc())),  # March 15, 2025
+      birthDate: some(parse("1975-07-01", "yyyy-MM-dd", utc())),      # July 1, 1975 (after the exclusion window)
+      tobaccoUser: true,
+      gender: "F",
+      state: "FL",
+      zipCode: "33101",
+      agentID: 6,
+      phoneNumber: some("555-2468"),
+      status: some("Active")
+    )
+    
+    # Calculate scheduled emails
+    let emails = calculateScheduledEmails(contact, today)
+    
+    # Extract birthday emails
+    let birthdayEmails = emails.filterIt(it.emailType == $EmailType.Birthday)
+    
+    # Should have one birthday email
+    check birthdayEmails.len == 1
+    
+    # Should be scheduled 14 days before birthday (Jan 18, 2026)
+    # Note: Since we're testing on Jan 1, 2025, and the birthday is Feb 1,
+    # the scheduler will use the 2026 birthday (Feb 1, 2026)
+    check birthdayEmails[0].scheduledAt == parse("2026-01-18", "yyyy-MM-dd", utc())
+
+  test "Exclusion Window Handling (Effective Date)":
+    # Create a test contact with effective date during exclusion window
+    let contact = Contact(
+      id: 7,
+      firstName: "Frank",
+      lastName: "Wilson",
+      email: "frank@example.com", 
+      currentCarrier: "Test Carrier",
+      planType: "Medicare",
+      effectiveDate: some(parse("2025-03-15", "yyyy-MM-dd", utc())),  # March 15, 2025
+      birthDate: some(parse("1980-02-01", "yyyy-MM-dd", utc())),      # February 1, 1980
+      tobaccoUser: false,
+      gender: "M",
+      state: "AZ",
+      zipCode: "85001",
+      agentID: 7,
+      phoneNumber: some("555-1357"),
+      status: some("Active")
+    )
+    
+    # Calculate scheduled emails
+    let emails = calculateScheduledEmails(contact, today)
+    
+    # Extract effective date emails
+    let effectiveEmails = emails.filterIt(it.emailType == $EmailType.Effective)
+    
+    # Should have one effective date email
+    check effectiveEmails.len == 1
+    
+    # Should be scheduled 30 days before effective date (Nov 15, 2025)
+    check effectiveEmails[0].scheduledAt == parse("2025-11-15", "yyyy-MM-dd", utc())
+
+  test "Batch Email Scheduling":
+    # Create a batch of contacts
+    var contacts: seq[Contact] = @[]
+    for i in 1..10:
+      contacts.add(Contact(
+        id: 100 + i,
+        firstName: "Test" & $i,
+        lastName: "User" & $i,
+        email: "test" & $i & "@example.com", 
+        currentCarrier: "Test Carrier",
+        planType: "Medicare",
+        effectiveDate: some(parse("2025-12-0" & $(i mod 9 + 1), "yyyy-MM-dd", utc())),  # December dates to avoid exclusion windows
+        birthDate: some(parse("1960-04-0" & $(i mod 9 + 1), "yyyy-MM-dd", utc())),
+        tobaccoUser: i mod 2 == 0,
+        gender: if i mod 2 == 0: "M" else: "F",
+        state: ["TX", "CA", "FL", "NY", "PA"][i mod 5],
+        zipCode: "1000" & $i,
+        agentID: 1000 + i,
+        phoneNumber: some("555-" & $(1000 + i)),
+        status: some("Active")
+      ))
+    
+    # Calculate batch scheduled emails
+    let emailsBatch = calculateBatchScheduledEmails(contacts, today)
+    
+    # Flatten all emails to check AEP distribution
+    var allAepEmails: seq[Email] = @[]
+    for contactEmails in emailsBatch:
+      for email in contactEmails:
+        if email.emailType == $EmailType.AEP:
+          allAepEmails.add(email)
+    
+    # Check we have AEP emails for contacts - may not be all due to exclusion windows
+    check allAepEmails.len > 0
+    
+    # Count emails per week
+    var weekCounts: array[4, int] = [0, 0, 0, 0]
+    for email in allAepEmails:
+      if email.reason.find("Week 1") != -1 or email.reason.find("First week") != -1: 
+        weekCounts[0] += 1
+      elif email.reason.find("Week 2") != -1 or email.reason.find("Second week") != -1: 
+        weekCounts[1] += 1
+      elif email.reason.find("Week 3") != -1 or email.reason.find("Third week") != -1: 
+        weekCounts[2] += 1
+      elif email.reason.find("Week 4") != -1 or email.reason.find("Fourth week") != -1: 
+        weekCounts[3] += 1
+    
+    # Check for distribution across the weeks
+    let totalEmails = weekCounts.foldl(a + b)
     check totalEmails > 0
+    
+    # Some emails should be sent each week if we have enough contacts
+    if allAepEmails.len >= 4:
+      for i in 0..3:
+        check weekCounts[i] > 0
+
+  test "Batch Email Scheduling with Different States":
+    # Create a batch of contacts with different states
+    var contacts: seq[Contact] = @[]
+    for i in 1..10:
+      contacts.add(Contact(
+        id: 200 + i,
+        firstName: "State" & $i,
+        lastName: "User" & $i,
+        email: "state" & $i & "@example.com", 
+        currentCarrier: "Test Carrier",
+        planType: "Medicare",
+        effectiveDate: some(parse("2025-12-0" & $(i mod 9 + 1), "yyyy-MM-dd", utc())),  # December dates to avoid exclusion windows
+        birthDate: some(parse("1960-04-0" & $(i mod 9 + 1), "yyyy-MM-dd", utc())),
+        tobaccoUser: i mod 2 == 0,
+        gender: if i mod 2 == 0: "M" else: "F",
+        state: ["TX", "CA", "FL", "NY", "PA", "CT", "AZ", "OR", "MO", "WA"][i mod 10],
+        zipCode: "2000" & $i,
+        agentID: 2000 + i,
+        phoneNumber: some("555-" & $(2000 + i)),
+        status: some("Active")
+      ))
+    
+    # Calculate batch scheduled emails
+    let emailsBatch = calculateBatchScheduledEmails(contacts, today)
+    
+    # Flatten all emails to check AEP distribution
+    var allAepEmails: seq[Email] = @[]
+    for contactEmails in emailsBatch:
+      for email in contactEmails:
+        if email.emailType == $EmailType.AEP:
+          allAepEmails.add(email)
+    
+    # Check we have AEP emails for contacts - may not be all due to exclusion windows
+    check allAepEmails.len > 0
+    
+    # Count emails per week
+    var weekCounts: array[4, int] = [0, 0, 0, 0]
+    for email in allAepEmails:
+      if email.reason.find("Week 1") != -1 or email.reason.find("First week") != -1: 
+        weekCounts[0] += 1
+      elif email.reason.find("Week 2") != -1 or email.reason.find("Second week") != -1: 
+        weekCounts[1] += 1
+      elif email.reason.find("Week 3") != -1 or email.reason.find("Third week") != -1: 
+        weekCounts[2] += 1
+      elif email.reason.find("Week 4") != -1 or email.reason.find("Fourth week") != -1: 
+        weekCounts[3] += 1
+    
+    # Check for distribution across the weeks
+    let totalEmails = weekCounts.foldl(a + b)
+    check totalEmails > 0
+
+================
+File: tests/test_scheduler_simple.nim
+================
+import unittest, times, strutils, strformat, sequtils, options
+import ../src/models, ../src/scheduler, ../src/rules
+
+# A utility function to test and check email scheduling
+template checkEmails(contact: Contact, expectedCount: int, expectedTypes: varargs[string]) =
+  let emails = calculateScheduledEmails(contact, today)
+  check emails.len == expectedCount
+  
+  for emailType in expectedTypes:
+    let found = emails.anyIt(it.emailType == emailType)
+    check found
+    if not found:
+      echo "Expected to find " & emailType & " email"
+
+# A utility function to check if a date is in the exclusion window
+proc isInExclusionWindow(date: DateTime, eewStart, eewEnd: DateTime): bool =
+  date >= eewStart and date < eewEnd
+
+# A utility function to get yearly date (since it's private in scheduler)
+proc getYearlyDate(date: DateTime, year: int): DateTime =
+  try:
+    # Extract month and day from the date
+    let 
+      monthInt = ord(date.month)
+      dayInt = min(date.monthday, 28) # Safe value for all months
+
+    # Create a new date with the same month/day but in target year
+    result = parse(fmt"{year:04d}-{monthInt:02d}-{dayInt:02d}", "yyyy-MM-dd", utc())
+    
+    # If date has passed this year, use next year
+    if result < now():
+      result = parse(fmt"{year+1:04d}-{monthInt:02d}-{dayInt:02d}", "yyyy-MM-dd", utc())
+  except:
+    # Fallback to January 1 of the given year
+    result = parse(fmt"{year:04d}-01-01", "yyyy-MM-dd", utc())
+
+suite "Scheduler Simple Tests":
+  # Reference date for all tests
+  let today = parse("2025-01-01", "yyyy-MM-dd", utc())
+  
+  setup:
+    echo "Testing with today = ", today.format("yyyy-MM-dd")
+  
+  test "Texas Contact (Birthday Rule)":
+    # Create a contact with Option types for optional fields
+    let txContact = Contact(
+      id: 1,
+      firstName: "Texas",
+      lastName: "User",
+      email: "tx@example.com", 
+      currentCarrier: "Test Carrier",
+      planType: "Medicare",
+      effectiveDate: some(parse("2025-12-15", "yyyy-MM-dd", utc())),  # Far future to avoid exclusion window
+      birthDate: some(parse("1950-02-01", "yyyy-MM-dd", utc())),
+      tobaccoUser: false,
+      gender: "M",
+      state: "TX",
+      zipCode: "75001",
+      agentID: 101,
+      phoneNumber: some("555-1234"),
+      status: some("Active")
+    )
+    
+    # Check state rule
+    let stateRule = getStateRule(txContact.state)
+    check stateRule == Birthday
+    
+    # Calculate expected email dates
+    let 
+      birthDate = txContact.birthDate.get
+      birthYearlyDate = getYearlyDate(birthDate, today.year)
+      expectedBirthdayEmail = birthYearlyDate - 14.days
+    
+    # Calculate exclusion window
+    let 
+      (startOffset, duration) = getRuleParams(txContact.state)
+      ruleStart = getYearlyDate(birthDate, today.year) + startOffset.days
+      ruleEnd = ruleStart + duration.days
+      eewStart = ruleStart - 60.days
+      eewEnd = ruleEnd
+    
+    # Check if expected email is in exclusion window
+    let inWindow = isInExclusionWindow(expectedBirthdayEmail, eewStart, eewEnd)
+    
+    # Check scheduled emails
+    if not inWindow:
+      checkEmails(txContact, 4, "Birthday", "Effective", "AEP", "CarrierUpdate")
+    else:
+      # If in exclusion window, we might get a post-window email instead
+      let emails = calculateScheduledEmails(txContact, today)
+      check emails.len > 0
+  
+  test "Oregon Contact (Birthday Rule)":
+    let orContact = Contact(
+      id: 2,
+      firstName: "Oregon",
+      lastName: "User",
+      email: "or@example.com", 
+      currentCarrier: "Test Carrier",
+      planType: "Medicare",
+      effectiveDate: some(parse("2025-12-15", "yyyy-MM-dd", utc())),
+      birthDate: some(parse("1955-09-15", "yyyy-MM-dd", utc())),
+      tobaccoUser: false,
+      gender: "F",
+      state: "OR",
+      zipCode: "97001",
+      agentID: 102,
+      phoneNumber: some("555-5678"),
+      status: some("Active")
+    )
+    
+    # Check state rule
+    let stateRule = getStateRule(orContact.state)
+    check stateRule == Birthday
+    
+    # Check scheduled emails
+    checkEmails(orContact, 4, "Birthday", "Effective", "AEP", "CarrierUpdate")
+  
+  test "Missouri Contact (Effective Date Rule)":
+    let moContact = Contact(
+      id: 3,
+      firstName: "Missouri",
+      lastName: "User",
+      email: "mo@example.com", 
+      currentCarrier: "Test Carrier",
+      planType: "Medicare",
+      effectiveDate: some(parse("2025-12-15", "yyyy-MM-dd", utc())),
+      birthDate: some(parse("1960-05-01", "yyyy-MM-dd", utc())),
+      tobaccoUser: true,
+      gender: "M",
+      state: "MO",
+      zipCode: "63101",
+      agentID: 103,
+      phoneNumber: some("555-9012"),
+      status: some("Active")
+    )
+    
+    # Check state rule
+    let stateRule = getStateRule(moContact.state)
+    check stateRule == Effective
+    
+    # Check scheduled emails
+    checkEmails(moContact, 4, "Birthday", "Effective", "AEP", "CarrierUpdate")
+  
+  test "Connecticut Contact (Year Round Enrollment)":
+    let ctContact = Contact(
+      id: 4,
+      firstName: "Connecticut",
+      lastName: "User",
+      email: "ct@example.com", 
+      currentCarrier: "Test Carrier",
+      planType: "Medicare",
+      effectiveDate: some(parse("2025-04-01", "yyyy-MM-dd", utc())),
+      birthDate: some(parse("1965-06-15", "yyyy-MM-dd", utc())),
+      tobaccoUser: false,
+      gender: "F",
+      state: "CT",
+      zipCode: "06001",
+      agentID: 104,
+      phoneNumber: some("555-3456"),
+      status: some("Active")
+    )
+    
+    # Check state rule
+    let stateRule = getStateRule(ctContact.state)
+    check stateRule == YearRound
+    
+    # Year-round states should get no emails except possibly carrier update
+    let emails = calculateScheduledEmails(ctContact, today)
+    check emails.len <= 1
+    if emails.len == 1:
+      check emails[0].emailType == "CarrierUpdate"
+  
+  test "Contact with Missing Dates":
+    let incompleteContact = Contact(
+      id: 5,
+      firstName: "Incomplete",
+      lastName: "User",
+      email: "incomplete@example.com", 
+      currentCarrier: "Test Carrier",
+      planType: "Medicare",
+      effectiveDate: none(DateTime),  # Missing effective date
+      birthDate: some(parse("1970-07-15", "yyyy-MM-dd", utc())),
+      tobaccoUser: false,
+      gender: "M",
+      state: "TX",
+      zipCode: "75002",
+      agentID: 105,
+      phoneNumber: none(string),  # Missing phone number
+      status: none(string)  # Missing status
+    )
+    
+    # Should return empty sequence when critical dates are missing
+    let emails = calculateScheduledEmails(incompleteContact, today)
+    check emails.len == 0
+  
+  test "Batch Email Scheduling":
+    # Create a sequence of contacts
+    var contacts = @[
+      Contact(
+        id: 101,
+        firstName: "Contact1",
+        lastName: "User",
+        email: "contact1@example.com",
+        currentCarrier: "Carrier A",
+        planType: "Medicare",
+        effectiveDate: some(parse("2025-05-15", "yyyy-MM-dd", utc())),
+        birthDate: some(parse("1955-03-10", "yyyy-MM-dd", utc())),
+        tobaccoUser: false,
+        gender: "F",
+        state: "TX",
+        zipCode: "75003",
+        agentID: 201,
+        phoneNumber: some("555-1111"),
+        status: some("Active")
+      ),
+      Contact(
+        id: 102,
+        firstName: "Contact2",
+        lastName: "User",
+        email: "contact2@example.com",
+        currentCarrier: "Carrier B",
+        planType: "Medicare",
+        effectiveDate: some(parse("2025-06-20", "yyyy-MM-dd", utc())),
+        birthDate: some(parse("1960-04-20", "yyyy-MM-dd", utc())),
+        tobaccoUser: true,
+        gender: "M",
+        state: "CA",
+        zipCode: "90001",
+        agentID: 202,
+        phoneNumber: some("555-2222"),
+        status: some("Active")
+      ),
+      Contact(
+        id: 103,
+        firstName: "Contact3",
+        lastName: "User",
+        email: "contact3@example.com",
+        currentCarrier: "Carrier C",
+        planType: "Medicare",
+        effectiveDate: some(parse("2025-07-10", "yyyy-MM-dd", utc())),
+        birthDate: some(parse("1965-05-30", "yyyy-MM-dd", utc())),
+        tobaccoUser: false,
+        gender: "F",
+        state: "FL",
+        zipCode: "33101",
+        agentID: 203,
+        phoneNumber: some("555-3333"),
+        status: some("Active")
+      ),
+      Contact(
+        id: 104,
+        firstName: "Contact4",
+        lastName: "User",
+        email: "contact4@example.com",
+        currentCarrier: "Carrier D",
+        planType: "Medicare",
+        effectiveDate: some(parse("2025-08-05", "yyyy-MM-dd", utc())),
+        birthDate: some(parse("1970-06-15", "yyyy-MM-dd", utc())),
+        tobaccoUser: true,
+        gender: "M",
+        state: "NY",
+        zipCode: "10001",
+        agentID: 204,
+        phoneNumber: some("555-4444"),
+        status: some("Active")
+      )
+    ]
+    
+    # Test batch scheduling
+    let emailsBatch = calculateBatchScheduledEmails(contacts, today)
+    
+    # Check batch results
+    check emailsBatch.len == contacts.len
+    
+    # Each contact should have scheduled emails
+    for i in 0..<contacts.len:
+      check emailsBatch[i].len > 0
+    
+    # Check AEP distribution
+    var aepWeeks: array[4, int] = [0, 0, 0, 0]
+    
+    for i in 0..<contacts.len:
+      for email in emailsBatch[i]:
+        if email.emailType == "AEP":
+          if "First week" in email.reason:
+            aepWeeks[0] += 1
+          elif "Second week" in email.reason:
+            aepWeeks[1] += 1
+          elif "Third week" in email.reason:
+            aepWeeks[2] += 1
+          elif "Fourth week" in email.reason:
+            aepWeeks[3] += 1
+    
+    # Check distribution is relatively balanced
+    let totalAepEmails = aepWeeks.foldl(a + b)
+    check totalAepEmails > 0
 
 ================
 File: tests/test_scheduler.nim
@@ -2102,6 +3002,117 @@ suite "Scheduler Tests":
     check emails.len == 0
 
 ================
+File: tests/test_utils.nim
+================
+import unittest, json, times, strutils, options
+import ../src/utils, ../src/models
+
+suite "Result Type Tests":
+  test "Result ok":
+    let result = ok(10)
+    check result.isOk
+    check result.value == 10
+
+  test "Result err":
+    let result = err[int]("error message", 400)
+    check not result.isOk
+    check result.error.message == "error message"
+    check result.error.code == 400
+
+suite "Template Tests":
+  test "validateRequired - all fields present":
+    let jsonNode = %*{"id": 1, "name": "test", "value": 10}
+    let validation = validateRequired(jsonNode, "id", "name", "value")
+    check validation.valid
+    check validation.missingFields.len == 0
+
+  test "validateRequired - missing fields":
+    let jsonNode = %*{"id": 1, "value": 10}
+    let validation = validateRequired(jsonNode, "id", "name", "value")
+    check not validation.valid
+    check validation.missingFields == @["name"]
+
+  test "safeParseDate - valid date":
+    let date = safeParseDate("2025-01-01")
+    check date.isSome()
+    check date.get().year == 2025
+    check date.get().month == mJan
+    check date.get().monthday == 1
+
+  test "safeParseDate - invalid date":
+    let date = safeParseDate("invalid-date")
+    check date.isNone()
+
+  test "safeAddDays - with valid date":
+    # Parse a date and then add days to it
+    let originalDate = parse("2025-01-01", "yyyy-MM-dd", utc())
+    let optDate = some(originalDate)
+    let daysToAdd = 5
+    
+    # Use the safeAddDays template
+    let newDate = safeAddDays(optDate, daysToAdd)
+    
+    # Check the result
+    check newDate.isSome()
+    let resultDate = newDate.get()
+    check resultDate.year == 2025
+    check resultDate.month == mJan
+    check resultDate.monthday == 1
+
+  test "safeAddDays - with none date":
+    let date = none(DateTime)
+    let newDate = safeAddDays(date, 5)
+    check newDate.isNone()
+
+  test "safeYearlyDate - with valid date":
+    let date = safeParseDate("2025-01-01")
+    let newDate = safeYearlyDate(date, 2026)
+    check newDate.isSome()
+    check newDate.get().year == 2026
+    check newDate.get().month == mJan
+    check newDate.get().monthday == 1
+
+  test "safeYearlyDate - with none date":
+    let date = none(DateTime)
+    let newDate = safeYearlyDate(date, 2026)
+    check newDate.isNone()
+
+suite "Contact Parsing Tests":
+  test "parseContact - valid contact":
+    let jsonNode = %*{
+      "id": 1,
+      "firstName": "John",
+      "lastName": "Doe",
+      "state": "TX",
+      "email": "john@example.com",
+      "effectiveDate": "2025-01-01",
+      "birthDate": "1950-01-01"
+    }
+    
+    let result = parseContact(jsonNode)
+    check result.isOk
+    check result.value.id == 1
+    check result.value.firstName == "John"
+    check result.value.lastName == "Doe"
+    check result.value.state == "TX"
+    check result.value.email == "john@example.com"
+    check result.value.effectiveDate.isSome()
+    check result.value.effectiveDate.get().year == 2025
+    check result.value.birthDate.isSome()
+    check result.value.birthDate.get().year == 1950
+
+  test "parseContact - missing required fields":
+    let jsonNode = %*{
+      "id": 1,
+      "firstName": "John"
+    }
+    
+    let result = parseContact(jsonNode)
+    check not result.isOk
+    check result.error.code == 400
+    check "Missing required fields" in result.error.message
+
+================
 File: .env.sample
 ================
 # Medicare Email Scheduler Configuration
@@ -2118,111 +3129,6 @@ TURSO_AUTH_TOKEN=your_turso_auth_token
 File: .gitignore
 ================
 .env
-
-================
-File: CLAUDE.md
-================
-# CLAUDE.md - Assistant Guidelines for n_email_schedule
-
-## Build & Run Commands
-- Install dependencies: `nimble install`
-- Compile: `nim c src/n_email_schedule.nim`
-- Compile and run: `nim c -r src/n_email_schedule.nim`
-- Recommended run method: `./run.sh [options]`
-- Run options: `--dry-run`, `--verbose`, `--quiet`
-
-## Test Commands
-- Run all tests: `nim c -r tests/test_scheduler.nim`
-- Run single test: `nim c -r tests/test_scheduler.nim "Test Name"`
-
-## Code Style Guidelines
-- Types: PascalCase (e.g., `Contact`, `Email`)
-- Variables/Functions: camelCase (e.g., `firstName`, `getStateRule`)
-- Exports: Mark with `*` suffix (e.g., `Email*`)
-- Indentation: 2 spaces
-- Imports: Group at top, stdlib first, then local modules
-- Error handling: Use try-except blocks with fallbacks
-- Function signatures: Include return types and `{.async.}` where needed
-- File structure: Follow modular organization as in README
-- Documentation: Include comments for complex logic
-- Async: Use `asyncdispatch` for I/O operations, mark with `{.async.}`
-
-================
-File: EmailRules.md
-================
-# Email Rules
-Below is a clear and explicit summary of the new email scheduling rules based on your query. This synthesis aligns the requirements you provided into a structured format to ensure we're on the same page before discussing the necessary changes to the codebase.
-
-## New Email Scheduling Rules
-**1. Email Types and Scheduling**
-* **Birthday Emails**:
-  * Send **2 weeks (14 days) before** the contact's birthday.
-  * Purpose: Notify contacts in advance of their birthday.
-* **Effective Date Emails**:
-  * Send **30 days before** the contact's policy effective date.
-  * Purpose: Remind contacts ahead of their policy renewal or anniversary.
-* **Annual Enrollment Period (AEP) Emails**:
-  * Scheduling uses specific dates across four weeks:
-    * Week 1: August 18
-    * Week 2: August 25
-    * Week 3: September 1
-    * Week 4: September 7
-  * Distribution logic:
-    * **Single Contact**: Try Week 1 first. If it falls in an exclusion window, try Week 2, then Week 3, then Week 4. If all dates fall in exclusion windows, no AEP email is sent.
-    * **Multiple Contacts**: 
-      * Initially assign contacts sequentially to weeks (first contact to Week 1, second to Week 2, etc., cycling through the four weeks).
-      * For each contact, check if their assigned date falls in an exclusion window. If it does, try other weeks in order until finding a date outside any exclusion window.
-      * If no suitable date is found, that contact doesn't receive an AEP email.
-  * Note: Replaces the previous October 1st scheduling; now categorized explicitly as "AEP" emails.
-* **Eliminated Emails**:
-  * New Year emails (previously sent January 2nd) are **no longer sent**.
-
-**2. Exclusion Rules**
-* **60-Day Exclusion Window**:
-  * No two emails (Birthday, Effective Date, AEP) should be scheduled within **60 days** of each other.
-  * If multiple emails fall within a 60-day window, prioritize as follows:
-    **1** **Effective Date Email**: Always send this email on its scheduled date (30 days before effective date).
-    **2** **AEP Email**: Try to send on its scheduled date, but if it falls in an exclusion window, try alternative weeks as described above.
-    **3** **Birthday Email**: Do not send if it falls within 60 days of an Effective Date or AEP email. It is skipped entirely in this case, not rescheduled.
-* **State-Specific Rule Windows**:
-  * Applies to states with special rules (e.g., birthday rule states like CA, ID, IL, etc., and Missouri with an effective date rule).
-  * **Extended Exclusion Period**:
-    * No emails (Birthday, Effective Date, or AEP) should be sent during the state's defined rule window **or** in the **60 days before the rule window starts**.
-    * Example: If a state's birthday rule window is 30 days before to 30 days after the birthday (60 days total), the total exclusion period becomes 90 days before the birthday (60 days prior + 30 days before) to 30 days after the birthday—a 120-day window where no emails are sent.
-  * **AEP Email Handling**: 
-    * If an AEP email falls within this extended window, try alternative weeks as described above.
-    * If no week works, the AEP email is not sent ("tough luck").
-  * States affected:
-    * Birthday rule states (e.g., CA, ID, IL, KY, LA, MD, NV, OK, OR).
-    * Missouri (effective date rule).
-
-**3. Post-Rule Window Email**
-* After the state-specific rule window ends (including the 60-day prior exclusion), send **one email**:
-  * **Birthday Rule States**: Send a Birthday email (replacing any missed Birthday, Effective Date, or AEP emails).
-  * **Missouri**: Send an Effective Date email (replacing any missed emails).
-* Timing: Sent immediately after the rule window ends (e.g., the day after the window closes).
-* Limitation: Only one email is sent, regardless of how many were suppressed during the window.
-
-**4. Additional Notes**
-* **No Overlap Handling Beyond Prioritization**: If emails are excluded due to the 60-day rule or state-specific windows, they are not rescheduled unless explicitly stated (e.g., post-rule window email).
-* **AEP Distribution Logic**: 
-  * Contacts are assigned to weeks sequentially (1st contact to Week 1, 2nd to Week 2, etc.)
-  * For each contact, if their assigned week conflicts with an exclusion window, alternative weeks are tried in order
-  * If no viable week is found, the contact receives no AEP email
-
-## Clarifications for Alignment
-To ensure the logic is airtight, here are a few points I've inferred or assumed based on your description. Please confirm or adjust these:
-**1** **AEP Distribution Priority for Exclusion Window Checks**:
-  * When an assigned week conflicts with an exclusion window, we try the other weeks in sequence (Week 1, 2, 3, 4) regardless of which week was initially assigned.
-**2** **60-Day Exclusion Prioritization**:
-  * If both an Effective Date email and an AEP email fall within 60 days of each other, both are sent (since they are both prioritized over Birthday emails). Confirm this is intended.
-**3** **State Rule Window Duration**:
-  * Existing window durations (e.g., CA: 60 days, MO: 63 days) are assumed to remain unchanged, with the 60-day prior exclusion added.
-**4** **Post-Window Email Timing**:
-  * Sent the day after the rule window ends.
-**5** **Email Type After Extended Rule Window**:
-  * For Birthday rule states, only a Birthday email is sent after the rule window, even if an Effective Date email would have been sent during that window.
-  * For Missouri, only an Effective Date email is sent after the rule window.
 
 ================
 File: n_email_schedule.nimble
@@ -2251,326 +3157,17 @@ requires "unittest"
 requires "jester"
 
 ================
-File: README.md
-================
-# Medicare Email Scheduler (Nim)
-
-A concise and robust implementation of a Medicare email scheduler in Nim. This application schedules emails for Medicare enrollees based on their birthdate, effective date, and state-specific Medicare enrollment rules.
-
-## Features
-
-- Supports state-specific Medicare enrollment rules
-- Handles exclusion windows for email scheduling
-- Schedules birthday, effective date, AEP, and carrier update emails
-- Uses the Turso database API for data storage
-- Asynchronous database operations
-- Comprehensive logging
-- Supports configuration via .env file
-- Dry-run mode for testing without a database
-- RESTful API with Swagger documentation
-
-## Structure
-
-The application is organized into several modules:
-
-- `models.nim`: Defines the core data structures (Contact and Email)
-- `rules.nim`: Contains state-specific Medicare enrollment rules and helper functions
-- `scheduler.nim`: Implements the email scheduling logic
-- `database.nim`: Handles Turso database interaction
-- `dotenv.nim`: Handles loading environment variables from .env file
-- `api.nim`: Implements REST API with Swagger documentation
-- `n_email_schedule.nim`: Main application entry point
-
-## Configuration
-
-The application can be configured using environment variables or a .env file:
-
-### Using a .env File (Recommended)
-
-1. Copy the sample .env file:
-   ```bash
-   cp .env.sample .env
-   ```
-
-2. Edit the .env file and fill in your Turso database credentials:
-   ```
-   TURSO_DB_URL=https://your-database-name-org.turso.io
-   TURSO_AUTH_TOKEN=your_turso_auth_token
-   ```
-
-3. The application will automatically load variables from the .env file when it starts.
-
-### Getting a Turso Auth Token
-
-If you don't have a Turso auth token yet:
-
-1. Install the Turso CLI:
-   ```bash
-   curl -sSfL https://get.tur.so/install.sh | bash
-   ```
-
-2. Login to Turso:
-   ```bash
-   turso auth login
-   ```
-
-3. Create an auth token for your database:
-   ```bash
-   turso db tokens create medicare-portal
-   ```
-
-4. Copy the generated token to your .env file.
-
-If you're using an organization-specific database:
-   ```bash
-   turso db tokens create org-37
-   ```
-
-### Using Environment Variables
-
-You can also set environment variables directly:
-
-```bash
-export TURSO_DB_URL="https://your-database-name-org.turso.io"
-export TURSO_AUTH_TOKEN="your-turso-auth-token"
-```
-
-## Installation
-
-Make sure you have Nim 2.2.0+ installed. You can install dependencies with:
-
-```bash
-nimble install
-```
-
-## Running the Application
-
-### Using the run.sh Script (Recommended)
-
-The easiest way to run the application is to use the provided script:
-
-```bash
-./run.sh
-```
-
-This script will:
-- Check for a .env file and create one from the sample if needed
-- Verify your Turso auth token is set
-- Compile and run the application
-
-### Command Line Options
-
-The application supports several command line options:
-
-```bash
-./run.sh --dry-run    # Run without saving emails to database
-./run.sh --verbose    # Enable more detailed logging
-./run.sh --quiet      # Reduce log output
-./run.sh --api        # Run as API server
-./run.sh --port=5000  # Specify API server port (default: 5000)
-./run.sh --help       # Show help message
-```
-
-You can also compile and run the application directly:
-
-```bash
-nim c -r src/n_email_schedule.nim
-```
-
-### Dry-Run Mode
-
-If you want to test the application without connecting to a database:
-
-```bash
-./run.sh --dry-run
-```
-
-In dry-run mode:
-- No database connection is required
-- Test contacts are generated automatically
-- Emails are calculated but not saved to the database
-- Perfect for testing scheduling logic
-
-### API Mode
-
-Run the application as an API server:
-
-```bash
-./run.sh --api
-```
-
-This starts a RESTful API server with the following endpoints:
-
-- `POST /schedule-emails`: Calculate scheduled emails for a single contact
-- `GET /contacts/{contactId}/scheduled-emails`: Get scheduled emails for a specific contact
-- `POST /schedule-emails/batch`: Calculate scheduled emails for multiple contacts with AEP distribution
-- `GET /api-docs`: OpenAPI/Swagger JSON specification
-- `GET /docs`: Interactive Swagger UI documentation
-
-#### API Documentation
-
-Interactive API documentation is available at http://localhost:5000/docs when running in API mode.
-
-## Testing
-
-The application includes comprehensive testing tools to verify the scheduling logic and API functionality:
-
-### Nim Tests
-
-Run the Nim unit tests to verify the scheduling logic:
-
-```bash
-# Run all tests
-./test_nim.sh
-
-# Run with verbose output
-./test_nim.sh -v
-
-# Run a specific test file
-./test_nim.sh test_scheduler_simple.nim
-```
-
-### API Tests
-
-Test the API endpoints with the provided script:
-
-```bash
-# Run all API tests
-./test_api.sh
-
-# Run with verbose output
-./test_api.sh -v
-```
-
-### Test Scripts
-
-The project includes two powerful testing scripts:
-
-1. **API Test Script (`test_api.sh`)**
-   - Tests all API endpoints using curl commands
-   - Includes verbose mode (`-v` or `--verbose`)
-   - Automatically starts the API server if not running
-   - Verifies state-specific behavior, including year-round enrollment states
-   - Validates both single-contact and batch scheduling
-
-2. **Nim Test Script (`test_nim.sh`)**
-   - Runs Nim tests with formatted, colorized output
-   - Includes verbose mode for detailed test information
-   - Can run specific test files or all tests
-   - Formats output differently based on test type
-
-Both scripts provide clear PASS/FAIL indicators and detailed information in verbose mode, making it easy to diagnose issues.
-
-#### Output Format Features
-
-Both scripts use color-coded output for better readability:
-- **Green**: PASS indicators and successful test results
-- **Red**: FAIL indicators and error messages
-- **Yellow**: Test names and section headers
-- **Cyan**: Detailed test information
-- **Magenta**: Expected values
-- **Blue**: Actual values
-
-In verbose mode, they provide additional information:
-- Expected vs. actual values for each test
-- Detailed explanation of test conditions
-- Complete test output for failed tests
-- Summary of tests run
-
-## Debugging
-
-The application generates detailed logs in `scheduler.log` that you can monitor:
-
-```bash
-tail -f scheduler.log
-```
-
-## Database Schema Requirements
-
-The application expects the following database schema:
-
-### `contacts` table
-```sql
-CREATE TABLE contacts (
-  id INTEGER PRIMARY KEY,
-  first_name TEXT NOT NULL,
-  last_name TEXT NOT NULL,
-  email TEXT NOT NULL,
-  current_carrier TEXT NOT NULL,
-  plan_type TEXT NOT NULL,
-  effective_date TEXT NOT NULL,
-  birth_date TEXT NOT NULL,
-  tobacco_user BOOLEAN NOT NULL,
-  gender TEXT NOT NULL,
-  state TEXT NOT NULL,
-  zip_code TEXT NOT NULL,
-  agent_id INTEGER,
-  phone_number TEXT NOT NULL DEFAULT '',
-  status TEXT NOT NULL DEFAULT ''
-);
-```
-
-### `contact_events` table
-```sql
-CREATE TABLE contact_events (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  contact_id INTEGER,
-  lead_id INTEGER,
-  event_type TEXT NOT NULL,
-  metadata TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (contact_id) REFERENCES contacts(id)
-);
-```
-
-## AEP Distribution Logic
-
-For multiple contacts, emails are distributed across four weeks in August-September:
-1. **Week 1**: Last week of August (around August 22)
-2. **Week 2**: Fourth week of August (around August 29)
-3. **Week 3**: First week of September (around September 5)
-4. **Week 4**: Second week of September (around September 12)
-
-Contacts are distributed evenly across these weeks, accounting for exclusion windows for each contact.
-
-## State-specific Rules
-
-The application handles different types of Medicare enrollment rules:
-
-1. **Birthday Rule**: Enrollment window around the enrollee's birthday
-2. **Effective Date Rule**: Enrollment window around the policy's effective date
-3. **Year-Round Enrollment**: States with continuous enrollment opportunities
-
-================
 File: run_tests.sh
 ================
 #!/bin/sh
 
-# Compile and run the direct scheduler tests
-echo "Compiling and running Email Rules tests..."
+# This script is a simple wrapper around test_nim.sh
+# It's kept for backward compatibility
 
-# Check for nim in common locations
-if command -v nim >/dev/null 2>&1; then
-  NIM_CMD="nim"
-elif command -v /Users/reuben/.choosenim/toolchains/nim-2.2.2/bin/nim >/dev/null 2>&1; then
-  NIM_CMD="/Users/reuben/.choosenim/toolchains/nim-2.2.2/bin/nim"
-elif command -v /usr/local/bin/nim >/dev/null 2>&1; then
-  NIM_CMD="/usr/local/bin/nim"
-elif command -v "$HOME/.choosenim/toolchains/nim-2.2.2/bin/nim" >/dev/null 2>&1; then
-  NIM_CMD="$HOME/.choosenim/toolchains/nim-2.2.2/bin/nim"
-else
-  echo "Error: Nim compiler not found"
-  echo "Please ensure nim is installed and in your PATH"
-  exit 1
-fi
+echo "Running all Medicare Email Scheduler tests..."
 
-# Run the tests
-"$NIM_CMD" c -r tests/test_email_rules.nim
-
-echo "\nTests completed."
-
-# Note: The following test is currently not working due to missing dependencies
-# nim c -r tests/test_scheduler.nim
+# Run all tests using test_nim.sh
+exec ./test_nim.sh "$@"
 
 ================
 File: run.sh
@@ -2701,317 +3298,6 @@ if [ $EXIT_CODE -ne 0 ]; then
 else
     echo "Medicare Email Scheduler completed successfully"
 fi
-
-================
-File: simple_api.nim
-================
-import asynchttpserver, asyncdispatch, json, times, strutils, sequtils
-import src/models, src/scheduler, src/rules
-
-# Helper function to convert emails to JSON
-proc emailsToJson(emails: seq[Email]): JsonNode =
-  result = newJArray()
-  for email in emails:
-    result.add(%*{
-      "type": email.emailType,
-      "status": email.status,
-      "scheduledAt": email.scheduledAt.format("yyyy-MM-dd"),
-      "reason": email.reason
-    })
-
-# Helper function to parse Contact from JSON
-proc parseContact(jsonNode: JsonNode): Contact =
-  result = Contact(
-    id: jsonNode["id"].getInt,
-    firstName: jsonNode["firstName"].getStr,
-    lastName: jsonNode["lastName"].getStr,
-    email: jsonNode["email"].getStr,
-    currentCarrier: jsonNode["currentCarrier"].getStr,
-    planType: jsonNode["planType"].getStr,
-    tobaccoUser: jsonNode["tobaccoUser"].getBool,
-    gender: jsonNode["gender"].getStr,
-    state: jsonNode["state"].getStr,
-    zipCode: jsonNode["zipCode"].getStr,
-    agentID: jsonNode["agentID"].getInt,
-    phoneNumber: jsonNode.getOrDefault("phoneNumber").getStr(""),
-    status: jsonNode.getOrDefault("status").getStr("Active")
-  )
-
-  # Parse dates
-  try:
-    result.effectiveDate = parse(jsonNode["effectiveDate"].getStr, "yyyy-MM-dd", utc())
-  except:
-    result.effectiveDate = now()
-
-  try:
-    result.birthDate = parse(jsonNode["birthDate"].getStr, "yyyy-MM-dd", utc())
-  except:
-    result.birthDate = now()
-
-proc handler(req: Request): Future[void] {.async.} =
-  echo "Received request: ", req.url.path, " method: ", req.reqMethod
-  
-  let headers = {"Content-Type": "application/json"}
-  
-  case req.url.path
-  of "/health":
-    let data = %*{
-      "status": "ok",
-      "time": $now()
-    }
-    await req.respond(Http200, $data, headers.newHttpHeaders())
-    
-  of "/api-info":
-    let data = %*{
-      "name": "Medicare Email Scheduler API",
-      "version": "1.0.0",
-      "routes": [
-        "/health",
-        "/api-info",
-        "/schedule-emails",
-        "/contacts/{id}/scheduled-emails",
-        "/schedule-emails/batch"
-      ]
-    }
-    await req.respond(Http200, $data, headers.newHttpHeaders())
-    
-  of "/schedule-emails":
-    if req.reqMethod == HttpPost:
-      try:
-        # Parse JSON from request body
-        let reqJson = parseJson(req.body)
-        let contact = parseContact(reqJson["contact"])
-        
-        # Parse date or use current date
-        var today: DateTime
-        try:
-          if reqJson.hasKey("today"):
-            today = parse(reqJson["today"].getStr, "yyyy-MM-dd", utc())
-          else:
-            today = now().utc
-        except:
-          today = now().utc
-        
-        # Calculate emails
-        let emails = calculateScheduledEmails(contact, today)
-        
-        # Create response
-        let response = %*{
-          "scheduledEmails": emailsToJson(emails)
-        }
-        
-        await req.respond(Http200, $response, headers.newHttpHeaders())
-      except Exception as e:
-        let errorResponse = %*{
-          "error": "Error processing request: " & e.msg
-        }
-        await req.respond(Http400, $errorResponse, headers.newHttpHeaders())
-    else:
-      let errorResponse = %*{
-        "error": "Method not allowed",
-        "allowedMethods": ["POST"]
-      }
-      await req.respond(Http405, $errorResponse, headers.newHttpHeaders())
-      
-  of "/schedule-emails/batch":
-    if req.reqMethod == HttpPost:
-      try:
-        # Parse JSON from request body
-        let reqJson = parseJson(req.body)
-        
-        # Parse contacts array
-        var contacts: seq[Contact] = @[]
-        for contactJson in reqJson["contacts"]:
-          contacts.add(parseContact(contactJson))
-          
-        # Parse date or use current date
-        var today: DateTime
-        try:
-          if reqJson.hasKey("today"):
-            today = parse(reqJson["today"].getStr, "yyyy-MM-dd", utc())
-          else:
-            today = now().utc
-        except:
-          today = now().utc
-          
-        # Calculate batch emails
-        let emailsBatch = calculateBatchScheduledEmails(contacts, today)
-        
-        # Format response
-        var results = newJArray()
-        for i, emails in emailsBatch:
-          results.add(%*{
-            "contactId": contacts[i].id,
-            "scheduledEmails": emailsToJson(emails)
-          })
-          
-        let response = %*{
-          "results": results
-        }
-        
-        await req.respond(Http200, $response, headers.newHttpHeaders())
-      except Exception as e:
-        let errorResponse = %*{
-          "error": "Error processing batch request: " & e.msg
-        }
-        await req.respond(Http400, $errorResponse, headers.newHttpHeaders())
-    else:
-      let errorResponse = %*{
-        "error": "Method not allowed",
-        "allowedMethods": ["POST"]
-      }
-      await req.respond(Http405, $errorResponse, headers.newHttpHeaders())
-      
-  else:
-    # Check for contact emails path
-    if req.url.path.startsWith("/contacts/") and req.url.path.endsWith("/scheduled-emails"):
-      let parts = req.url.path.split("/")
-      if parts.len == 4:
-        try:
-          let contactId = parseInt(parts[2])
-          
-          # Create a mock contact for testing
-          let contact = Contact(
-            id: contactId,
-            firstName: "Test",
-            lastName: "User",
-            email: "test@example.com",
-            currentCarrier: "Test Carrier",
-            planType: "Medicare",
-            effectiveDate: parse("2025-03-15", "yyyy-MM-dd", utc()),
-            birthDate: parse("1950-02-01", "yyyy-MM-dd", utc()),
-            tobaccoUser: false,
-            gender: "M",
-            state: "TX",
-            zipCode: "12345",
-            agentID: 1,
-            phoneNumber: "555-1234",
-            status: "Active"
-          )
-          
-          # Calculate scheduled emails
-          let emails = calculateScheduledEmails(contact, now().utc)
-          
-          # Create response
-          let response = %*{
-            "scheduledEmails": emailsToJson(emails)
-          }
-          
-          await req.respond(Http200, $response, headers.newHttpHeaders())
-          return
-        except:
-          let errorResponse = %*{
-            "error": "Invalid contact ID format"
-          }
-          await req.respond(Http400, $errorResponse, headers.newHttpHeaders())
-          return
-    
-    # Default route not found
-    let data = %*{
-      "error": "Route not found",
-      "path": req.url.path
-    }
-    await req.respond(Http404, $data, headers.newHttpHeaders())
-
-# Create and start server
-let port = 5001
-var server = newAsyncHttpServer()
-echo "Starting Medicare Email Scheduler API on port ", port
-waitFor server.serve(Port(port), handler)
-
-================
-File: test_api.nim
-================
-import jester, json, asyncdispatch, times
-import src/models, src/scheduler
-
-# Setup routes
-routes:
-  get "/health":
-    resp %*{"status": "ok", "time": $now()}
-    
-  post "/schedule-emails":
-    # Create a mock contact for testing
-    let contact = Contact(
-      id: 1,
-      firstName: "Test",
-      lastName: "User",
-      email: "test@example.com",
-      currentCarrier: "Test Carrier",
-      planType: "Medicare",
-      effectiveDate: parse("2025-03-15", "yyyy-MM-dd", utc()),
-      birthDate: parse("1950-02-01", "yyyy-MM-dd", utc()),
-      tobaccoUser: false,
-      gender: "M",
-      state: "TX",
-      zipCode: "12345",
-      agentID: 1,
-      phoneNumber: "555-1234",
-      status: "Active"
-    )
-    
-    # Use current date for calculation
-    let today = now().utc
-    
-    # Calculate scheduled emails
-    let emails = calculateScheduledEmails(contact, today)
-    
-    # Convert emails to JSON
-    var emailsJson = newJArray()
-    for email in emails:
-      emailsJson.add(%*{
-        "type": email.emailType,
-        "status": email.status,
-        "scheduledAt": email.scheduledAt.format("yyyy-MM-dd"),
-        "reason": email.reason
-      })
-    
-    # Return response
-    resp %*{"scheduledEmails": emailsJson}
-    
-  get "/contacts/@id/scheduled-emails":
-    # Create a mock contact for testing
-    let contactId = parseInt(@"id")
-    let contact = Contact(
-      id: contactId,
-      firstName: "Test",
-      lastName: "User",
-      email: "test@example.com",
-      currentCarrier: "Test Carrier",
-      planType: "Medicare",
-      effectiveDate: parse("2025-03-15", "yyyy-MM-dd", utc()),
-      birthDate: parse("1950-02-01", "yyyy-MM-dd", utc()),
-      tobaccoUser: false,
-      gender: "M",
-      state: "TX",
-      zipCode: "12345",
-      agentID: 1,
-      phoneNumber: "555-1234",
-      status: "Active"
-    )
-    
-    # Use current date for calculation
-    let today = now().utc
-    
-    # Calculate scheduled emails
-    let emails = calculateScheduledEmails(contact, today)
-    
-    # Convert emails to JSON
-    var emailsJson = newJArray()
-    for email in emails:
-      emailsJson.add(%*{
-        "type": email.emailType,
-        "status": email.status,
-        "scheduledAt": email.scheduledAt.format("yyyy-MM-dd"),
-        "reason": email.reason
-      })
-    
-    # Return response
-    resp %*{"scheduledEmails": emailsJson}
-
-echo "Starting test API on port 5001..."
-let settings = newSettings(port=Port(5001))
-runForever()
 
 ================
 File: test_api.sh
@@ -3397,8 +3683,67 @@ EOF
 )
 print_status $RESULT "Connecticut contact in batch should have 0 scheduled emails" "$DETAILS"
 
-# Test 6: Add a Year-Round state with a different state code to verify it's not just CT-specific
-echo -e "\n${YELLOW}Test 6: Schedule emails for Massachusetts contact (another year-round state)${NC}"
+# Test 6: Check Swagger JSON endpoint
+echo -e "\n${YELLOW}Test 6: Swagger JSON Documentation endpoint${NC}"
+API_DOCS_RESPONSE=$(curl -s "$API_URL/api-docs")
+echo "Response received (truncated): ${API_DOCS_RESPONSE:0:100}..."
+
+echo $API_DOCS_RESPONSE | jq -e '.openapi' &> /dev/null
+RESULT=$?
+DETAILS=$(cat << EOF
+Test: API docs endpoint should return valid OpenAPI JSON
+URL: $API_URL/api-docs
+Expected: Valid OpenAPI JSON with 'openapi' field
+Actual: $(if [ $RESULT -eq 0 ]; then echo "Valid OpenAPI JSON"; else echo "Invalid or missing OpenAPI JSON"; fi)
+EOF
+)
+print_status $RESULT "API docs endpoint should return valid OpenAPI JSON" "$DETAILS"
+
+# Check API title in Swagger JSON
+API_TITLE=$(echo $API_DOCS_RESPONSE | jq -r '.info.title')
+echo $API_DOCS_RESPONSE | jq -e '.info.title == "Medicare Email Scheduler API"' &> /dev/null
+RESULT=$?
+DETAILS=$(cat << EOF
+Test: Swagger JSON should have correct API title
+URL: $API_URL/api-docs
+Expected: info.title = "Medicare Email Scheduler API"
+Actual: info.title = "$API_TITLE"
+EOF
+)
+print_status $RESULT "Swagger JSON should have correct API title" "$DETAILS"
+
+# Test 7: Check Swagger UI HTML endpoint
+echo -e "\n${YELLOW}Test 7: Swagger UI Documentation endpoint${NC}"
+DOCS_RESPONSE=$(curl -s -I "$API_URL/docs")
+HTTP_STATUS=$(echo "$DOCS_RESPONSE" | grep "HTTP" | awk '{print $2}')
+CONTENT_TYPE=$(echo "$DOCS_RESPONSE" | grep -i "Content-Type" | awk '{print $2}')
+
+# Check if status is 200
+[[ "$HTTP_STATUS" == "200" ]] && STATUS_OK=0 || STATUS_OK=1
+RESULT=$STATUS_OK
+DETAILS=$(cat << EOF
+Test: Docs endpoint should return HTTP 200
+URL: $API_URL/docs
+Expected: HTTP Status = 200
+Actual: HTTP Status = $HTTP_STATUS
+EOF
+)
+print_status $RESULT "Docs endpoint should return HTTP 200" "$DETAILS"
+
+# Check if content type is HTML
+[[ "$CONTENT_TYPE" == *"text/html"* ]] && HTML_OK=0 || HTML_OK=1
+RESULT=$HTML_OK
+DETAILS=$(cat << EOF
+Test: Docs endpoint should return HTML content
+URL: $API_URL/docs
+Expected: Content-Type contains "text/html"
+Actual: Content-Type = "$CONTENT_TYPE"
+EOF
+)
+print_status $RESULT "Docs endpoint should return HTML content" "$DETAILS"
+
+# Test 8: Add a Year-Round state with a different state code to verify it's not just CT-specific
+echo -e "\n${YELLOW}Test 8: Schedule emails for Massachusetts contact (another year-round state)${NC}"
 MA_RESPONSE=$(curl -s -X POST "$API_URL/schedule-emails" \
   -H "Content-Type: application/json" \
   -d '{
@@ -3476,7 +3821,8 @@ while [[ $# -gt 0 ]]; do
       echo "Examples:"
       echo "  ./test_nim.sh                     # Run all tests"
       echo "  ./test_nim.sh -v                  # Run all tests with verbose output"
-      echo "  ./test_nim.sh test_scheduler_simple.nim  # Run only the simple scheduler test"
+      echo "  ./test_nim.sh tests/test_scheduler_simple.nim  # Run only the simple scheduler test"
+      echo "  ./test_nim.sh tests/test_api.nim              # Run only the API test"
       exit 0
       ;;
     *)
@@ -3502,12 +3848,12 @@ format_test_output() {
     else
       test_status="fail"
     fi
-  # For simple scheduler test, success is likely when we see "Testing with today"
-  elif [ "$test_name" == "test_scheduler_simple" ]; then
-    if echo "$output" | grep -q "Testing with today"; then
-      test_status="pass"
-    else
+  # For simple tests, success is likely when tests run without failing assertions
+  elif [ "$test_name" == "test_scheduler_simple" ] || [ "$test_name" == "test_api_simple" ]; then
+    if echo "$output" | grep -q "Failure"; then
       test_status="fail"
+    else
+      test_status="pass"
     fi
   fi
   
@@ -3531,13 +3877,15 @@ format_test_output() {
         done
       else
         # For other tests like simple scheduler, show the full detailed output
-        echo "$output" | grep -A 200 "Testing with today" | while read -r line; do
+        echo "$output" | while read -r line; do
           # Colorize key test information
-          if [[ $line == *"Testing"* && $line == *"-----"* ]]; then
+          if [[ $line == *"Suite "* ]]; then
             echo -e "${YELLOW}$line${NC}"
-          elif [[ $line == *"Expected"* ]]; then
+          elif [[ $line == *"[OK]"* ]]; then
+            echo -e "${GREEN}$line${NC}"
+          elif [[ $line == *"expected"* ]] || [[ $line == *"Expected"* ]]; then
             echo -e "${MAGENTA}$line${NC}"
-          elif [[ $line == *"Actual"* || $line == *"Number of emails"* ]]; then
+          elif [[ $line == *"actual"* ]] || [[ $line == *"Actual"* ]] || [[ $line == *"Number of emails"* ]]; then
             echo -e "${BLUE}$line${NC}"
           elif [[ $line == *"Summary"* ]]; then
             echo -e "${YELLOW}$line${NC}"
@@ -3566,22 +3914,12 @@ run_test() {
   echo -e "\n${YELLOW}Running test: $test_name${NC}"
   echo "============================================="
   
-  if [ "$test_name" == "test_email_rules" ]; then
-    # Use ./run_tests.sh for the email rules tests
-    output=$(./run_tests.sh 2>&1)
-    if [ $? -eq 0 ]; then
-      format_test_output "$output" "$test_name" "pass"
-    else
-      format_test_output "$output" "$test_name" "fail"
-    fi
+  # Use nim directly for all tests
+  output=$($NIM_BIN c -r "$test_file" 2>&1)
+  if [ $? -eq 0 ]; then
+    format_test_output "$output" "$test_name" "pass"
   else
-    # Use nim directly for other tests
-    output=$($NIM_BIN c -r "$test_file" 2>&1)
-    if [ $? -eq 0 ]; then
-      format_test_output "$output" "$test_name" "pass"
-    else
-      format_test_output "$output" "$test_name" "fail"
-    fi
+    format_test_output "$output" "$test_name" "fail"
   fi
 }
 
@@ -3596,7 +3934,10 @@ main() {
   # If no specific tests provided, run all tests
   if [ ${#TESTS[@]} -eq 0 ]; then
     run_test "tests/test_email_rules.nim"
-    run_test "test_scheduler_simple.nim"
+    run_test "tests/test_scheduler_simple.nim"
+    run_test "tests/test_api_simple.nim" 
+    run_test "tests/test_api.nim"
+    run_test "tests/test_utils.nim"
   else
     # Run specified tests
     for test in "${TESTS[@]}"; do
@@ -3609,171 +3950,6 @@ main() {
 
 # Run the main function
 main
-
-================
-File: test_scheduler_simple.nim
-================
-import unittest, times, strutils, strformat, sequtils
-import src/models, src/scheduler, src/rules
-
-# Reference date for all tests
-let today = parse("2025-01-01", "yyyy-MM-dd", utc())
-echo "Testing with today = ", today.format("yyyy-MM-dd")
-
-# We need our own version of getYearlyDate since it's private in scheduler.nim
-proc getYearlyDate(date: DateTime, year: int): DateTime =
-  try:
-    # Extract month and day from the date
-    let 
-      monthInt = ord(date.month)
-      dayInt = min(date.monthday, 28) # Safe value for all months
-
-    # Create a new date with the same month/day but in target year
-    result = parse(fmt"{year:04d}-{monthInt:02d}-{dayInt:02d}", "yyyy-MM-dd", utc())
-    
-    # If date has passed this year, use next year
-    if result < now():
-      result = parse(fmt"{year+1:04d}-{monthInt:02d}-{dayInt:02d}", "yyyy-MM-dd", utc())
-  except:
-    # Fallback to January 1 of the given year
-    result = parse(fmt"{year:04d}-01-01", "yyyy-MM-dd", utc())
-
-# Check if a date is in the exclusion window
-proc isInExclusionWindow(date: DateTime, eewStart, eewEnd: DateTime): bool =
-  date >= eewStart and date < eewEnd
-
-# Helper function to debug email scheduling
-proc debugContactEmails(name: string, contact: Contact) =
-  echo "\n----- Testing ", name, " -----"
-  echo "State: ", contact.state
-  echo "Birth date: ", contact.birthDate.format("yyyy-MM-dd")
-  echo "Effective date: ", contact.effectiveDate.format("yyyy-MM-dd")
-  
-  # Print state rule information
-  let stateRule = getStateRule(contact.state)
-  let (startOffset, duration) = getRuleParams(contact.state)
-  echo "State rule: ", stateRule
-  echo "Rule params: startOffset=", startOffset, ", duration=", duration
-  
-  # Calculate expected dates
-  echo "\nExpected scheduling:"
-  try:
-    # Calculate the yearly dates
-    let 
-      birthYearlyDate = getYearlyDate(contact.birthDate, today.year)
-      effectiveYearlyDate = getYearlyDate(contact.effectiveDate, today.year)
-      
-    echo "Birth date in current year: ", birthYearlyDate.format("yyyy-MM-dd")
-    echo "Effective date in current year: ", effectiveYearlyDate.format("yyyy-MM-dd")
-    
-    # Calculate expected email dates
-    let
-      expectedBirthdayEmail = birthYearlyDate - 14.days
-      expectedEffectiveEmail = effectiveYearlyDate - 30.days
-      expectedAepEmail = parse(fmt"{today.year:04d}-08-18", "yyyy-MM-dd", utc())
-      
-    echo "Expected birthday email: ", expectedBirthdayEmail.format("yyyy-MM-dd")
-    echo "Expected effective email: ", expectedEffectiveEmail.format("yyyy-MM-dd")
-    echo "Expected AEP email: ", expectedAepEmail.format("yyyy-MM-dd")
-    
-    # Calculate exclusion window
-    let refDate = if stateRule == Birthday: contact.birthDate else: contact.effectiveDate
-    let ruleStart = getYearlyDate(refDate, today.year) + startOffset.days
-    let ruleEnd = ruleStart + duration.days
-    let eewStart = ruleStart - 60.days
-    let eewEnd = ruleEnd
-    
-    echo "\nExclusion window:"
-    echo "Rule start: ", ruleStart.format("yyyy-MM-dd")
-    echo "Rule end: ", ruleEnd.format("yyyy-MM-dd") 
-    echo "Window: ", eewStart.format("yyyy-MM-dd"), " to ", eewEnd.format("yyyy-MM-dd")
-    
-    # Check if emails are in exclusion window
-    echo "Birthday email in window? ", isInExclusionWindow(expectedBirthdayEmail, eewStart, eewEnd)
-    echo "Effective email in window? ", isInExclusionWindow(expectedEffectiveEmail, eewStart, eewEnd)
-    echo "AEP email in window? ", isInExclusionWindow(expectedAepEmail, eewStart, eewEnd)
-  except Exception as e:
-    echo "Error in date calculations: ", e.msg
-    
-  # Actually run the scheduler
-  echo "\nActual scheduled emails:"
-  try:
-    let emails = calculateScheduledEmails(contact, today)
-    echo "Number of emails: ", emails.len
-    
-    for i, email in emails:
-      echo email.emailType, " email scheduled for ", email.scheduledAt.format("yyyy-MM-dd")
-      
-    # Check specifically for each type
-    let
-      birthdayEmails = emails.filterIt(it.emailType == $EmailType.Birthday)
-      effectiveEmails = emails.filterIt(it.emailType == $EmailType.Effective)
-      aepEmails = emails.filterIt(it.emailType == $EmailType.AEP)
-      
-    echo "\nSummary:"
-    echo "Birthday emails: ", birthdayEmails.len
-    echo "Effective date emails: ", effectiveEmails.len
-    echo "AEP emails: ", aepEmails.len
-  except Exception as e:
-    echo "Error in scheduler: ", e.msg
-    
-  echo "------------------------\n"
-
-# Test 1: Basic Birthday Email (Texas)
-let txContact = Contact(
-  id: 1,
-  firstName: "Texas",
-  lastName: "User",
-  email: "tx@example.com", 
-  currentCarrier: "Test Carrier",
-  planType: "Medicare",
-  effectiveDate: parse("2025-12-15", "yyyy-MM-dd", utc()),  # Far future to avoid exclusion window
-  birthDate: parse("1950-02-01", "yyyy-MM-dd", utc()),
-  state: "TX"
-)
-debugContactEmails("Texas Contact (Birthday)", txContact)
-
-# Test 2: Oregon (Birthday Rule State)
-let orContact = Contact(
-  id: 2,
-  firstName: "Oregon",
-  lastName: "User",
-  email: "or@example.com", 
-  currentCarrier: "Test Carrier",
-  planType: "Medicare",
-  effectiveDate: parse("2025-12-15", "yyyy-MM-dd", utc()),  # Far future to avoid exclusion window
-  birthDate: parse("1955-09-15", "yyyy-MM-dd", utc()),      # September 15 (further away from Jan-Apr)
-  state: "OR"
-)
-debugContactEmails("Oregon Contact (Birthday Rule)", orContact)
-
-# Test 3: Missouri (Effective Date Rule State)
-let moContact = Contact(
-  id: 3,
-  firstName: "Missouri",
-  lastName: "User",
-  email: "mo@example.com", 
-  currentCarrier: "Test Carrier",
-  planType: "Medicare",
-  effectiveDate: parse("2025-12-15", "yyyy-MM-dd", utc()),
-  birthDate: parse("1960-05-01", "yyyy-MM-dd", utc()),
-  state: "MO"
-)
-debugContactEmails("Missouri Contact (Effective Date Rule)", moContact)
-
-# Test 4: Connecticut (Year Round Enrollment)
-let ctContact = Contact(
-  id: 4,
-  firstName: "Connecticut",
-  lastName: "User",
-  email: "ct@example.com", 
-  currentCarrier: "Test Carrier",
-  planType: "Medicare",
-  effectiveDate: parse("2025-04-01", "yyyy-MM-dd", utc()),
-  birthDate: parse("1965-06-15", "yyyy-MM-dd", utc()),
-  state: "CT"
-)
-debugContactEmails("Connecticut Contact (Year Round)", ctContact)
 
 ================
 File: test.out

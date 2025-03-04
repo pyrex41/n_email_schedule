@@ -1,4 +1,4 @@
-import times, algorithm, sequtils, strformat
+import times, algorithm, sequtils, strformat, options
 import models, rules
 
 type
@@ -36,11 +36,22 @@ proc getYearlyDate(date: DateTime, year: int): DateTime =
 
 proc getExclusionWindow(contact: Contact, today: DateTime): tuple[start,
     endDate: DateTime] =
+  # Ensure the contact has both dates before proceeding
+  if not contact.birthDate.isSome() or not contact.effectiveDate.isSome():
+    # Fallback to a safe default if dates are missing
+    let currentDate = now().utc
+    return (
+      start: currentDate - 30.days,
+      endDate: currentDate + 30.days
+    )
+    
   try:
     let
+      birthDate = contact.birthDate.get()
+      effectiveDate = contact.effectiveDate.get()
       stateRule = getStateRule(contact.state)
       (startOffset, duration) = getRuleParams(contact.state)
-      refDate = if stateRule == Birthday: contact.birthDate else: contact.effectiveDate
+      refDate = if stateRule == Birthday: birthDate else: effectiveDate
       ruleStart = getYearlyDate(refDate, today.year) + startOffset.days
       ruleEnd = ruleStart + duration.days
 
@@ -85,9 +96,16 @@ proc scheduleEmail(emails: var seq[Email], emailType: EmailType,
 proc calculateScheduledEmails*(contact: Contact, today: DateTime): seq[Email] =
   result = @[]
 
+  # Check if required date fields are present
+  if not contact.birthDate.isSome() or not contact.effectiveDate.isSome():
+    return @[]  # Return empty sequence if critical data is missing
+
   try:
-    let stateRule = getStateRule(contact.state)
-    let currentYear = today.year
+    let 
+      birthDate = contact.birthDate.get()
+      effectiveDate = contact.effectiveDate.get()
+      stateRule = getStateRule(contact.state)
+      currentYear = today.year
 
     # Skip for year-round enrollment states
     if stateRule == YearRound:
@@ -101,7 +119,7 @@ proc calculateScheduledEmails*(contact: Contact, today: DateTime): seq[Email] =
 
     # Birthday email (14 days before)
     let
-      birthdayDate = getYearlyDate(contact.birthDate, currentYear)
+      birthdayDate = getYearlyDate(birthDate, currentYear)
       birthdayEmailDate = birthdayDate - 14.days
 
     if not scheduleEmail(result, Birthday, birthdayEmailDate, eewStart, eewEnd, today):
@@ -110,8 +128,8 @@ proc calculateScheduledEmails*(contact: Contact, today: DateTime): seq[Email] =
 
     # Effective date email (30 days before)
     let
-      effectiveDate = getYearlyDate(contact.effectiveDate, currentYear)
-      effectiveEmailDate = effectiveDate - 30.days
+      effectiveDateYearly = getYearlyDate(effectiveDate, currentYear)
+      effectiveEmailDate = effectiveDateYearly - 30.days
 
     if not scheduleEmail(result, Effective, effectiveEmailDate, eewStart,
         eewEnd, today):

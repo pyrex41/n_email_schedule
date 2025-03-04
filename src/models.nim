@@ -1,13 +1,15 @@
 import times
+import options
 
 type
   Contact* = object
     id*: int
     firstName*, lastName*, email*: string
     currentCarrier*, planType*: string
-    effectiveDate*, birthDate*: DateTime
+    effectiveDate*, birthDate*: Option[DateTime]  # Optional dates
     tobaccoUser*: bool
-    gender*, state*, zipCode*, phoneNumber*, status*: string
+    gender*, state*, zipCode*: string
+    phoneNumber*, status*: Option[string]  # Optional strings
     agentID*: int
 
   Email* = object

@@ -83,16 +83,16 @@ proc getTestContacts(): seq[Contact] =
       email: "john@example.com",
       currentCarrier: "Test Carrier",
       planType: "Medicare",
-      effectiveDate: now().utc, # Current date
-    birthDate: now().utc, # Current date (will be adjusted in the try block)
-    tobaccoUser: false,
-    gender: "M",
-    state: "TX",
-    zipCode: "12345",
-    agentID: 1,
-    phoneNumber: "555-1234",
-    status: "Active"
-  ),
+      effectiveDate: some(now().utc), # Current date
+      birthDate: some(now().utc), # Current date (will be adjusted in the try block)
+      tobaccoUser: false,
+      gender: "M",
+      state: "TX",
+      zipCode: "12345",
+      agentID: 1,
+      phoneNumber: some("555-1234"),
+      status: some("Active")
+    ),
     Contact(
       id: 2,
       firstName: "Jane",
@@ -100,16 +100,16 @@ proc getTestContacts(): seq[Contact] =
       email: "jane@example.com",
       currentCarrier: "Test Carrier",
       planType: "Medicare",
-      effectiveDate: now().utc, # Current date
-    birthDate: now().utc, # Current date (will be adjusted in the try block)
-    tobaccoUser: false,
-    gender: "F",
-    state: "OR",
-    zipCode: "97123",
-    agentID: 2,
-    phoneNumber: "555-5678",
-    status: "Active"
-  ),
+      effectiveDate: some(now().utc), # Current date
+      birthDate: some(now().utc), # Current date (will be adjusted in the try block)
+      tobaccoUser: false,
+      gender: "F",
+      state: "OR",
+      zipCode: "97123",
+      agentID: 2,
+      phoneNumber: some("555-5678"),
+      status: some("Active")
+    ),
     Contact(
       id: 3,
       firstName: "Bob",
@@ -117,16 +117,16 @@ proc getTestContacts(): seq[Contact] =
       email: "bob@example.com",
       currentCarrier: "Test Carrier",
       planType: "Medicare",
-      effectiveDate: now().utc, # Current date
-    birthDate: now().utc, # Current date (will be adjusted in the try block)
-    tobaccoUser: false,
-    gender: "M",
-    state: "CT",
-    zipCode: "06001",
-    agentID: 3,
-    phoneNumber: "555-9012",
-    status: "Active"
-  )
+      effectiveDate: some(now().utc), # Current date
+      birthDate: some(now().utc), # Current date (will be adjusted in the try block)
+      tobaccoUser: false,
+      gender: "M",
+      state: "CT",
+      zipCode: "06001",
+      agentID: 3,
+      phoneNumber: some("555-9012"),
+      status: some("Active")
+    )
   ]
 
   # Set the birthdates to reasonable values (adjust the current date)
@@ -136,23 +136,20 @@ proc getTestContacts(): seq[Contact] =
 
     # Test contact 1: 70 years old, born on Jan 1
     var bd1 = dateTime(1, mJan, currentYear - 70, 0, 0, 0, zone = utc())
-    result[0].birthDate = bd1
+    result[0].birthDate = some(bd1)
 
     # Test contact 2: 72 years old, born on May 15
     var bd2 = dateTime(15, mMay, currentYear - 72, 0, 0, 0, zone = utc())
-    result[1].birthDate = bd2
+    result[1].birthDate = some(bd2)
 
     # Test contact 3: 68 years old, born on June 10
     var bd3 = dateTime(10, mJun, currentYear - 68, 0, 0, 0, zone = utc())
-    result[2].birthDate = bd3
+    result[2].birthDate = some(bd3)
 
     # Set effective dates 5 years ago
-    result[0].effectiveDate = dateTime(1, mFeb, currentYear - 5, 0, 0, 0,
-        zone = utc())
-    result[1].effectiveDate = dateTime(1, mJun, currentYear - 5, 0, 0, 0,
-        zone = utc())
-    result[2].effectiveDate = dateTime(1, mJul, currentYear - 5, 0, 0, 0,
-        zone = utc())
+    result[0].effectiveDate = some(dateTime(1, mFeb, currentYear - 5, 0, 0, 0, zone = utc()))
+    result[1].effectiveDate = some(dateTime(1, mJun, currentYear - 5, 0, 0, 0, zone = utc()))
+    result[2].effectiveDate = some(dateTime(1, mJul, currentYear - 5, 0, 0, 0, zone = utc()))
   except:
     # If there's any error, leave the dates as current date
     debug "Failed to set custom dates for test contacts"

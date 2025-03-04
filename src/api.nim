@@ -1,7 +1,7 @@
 import asyncdispatch, times, strutils, sequtils, logging, os, tables
 import jester
 import json
-import models, scheduler, database, dotenv
+import models, scheduler, database, dotenv, utils
 
 # Set up logging
 var consoleLogger = newConsoleLogger(fmtStr="[$time] - $levelname: ")
@@ -19,34 +19,6 @@ type CallbackAction = enum
   TCActionRaw   # Send the raw body data with the headers
 
 # Helper functions for JSON conversion
-proc toContact(node: JsonNode): Contact =
-  result = Contact(
-    id: node["id"].getInt,
-    firstName: node["firstName"].getStr,
-    lastName: node["lastName"].getStr,
-    email: node["email"].getStr,
-    currentCarrier: node["currentCarrier"].getStr,
-    planType: node["planType"].getStr,
-    tobaccoUser: node["tobaccoUser"].getBool,
-    gender: node["gender"].getStr,
-    state: node["state"].getStr,
-    zipCode: node["zipCode"].getStr,
-    agentID: node["agentID"].getInt,
-    phoneNumber: node.getOrDefault("phoneNumber").getStr,
-    status: node.getOrDefault("status").getStr
-  )
-
-  # Parse dates
-  try:
-    result.effectiveDate = parse(node["effectiveDate"].getStr, "yyyy-MM-dd", utc())
-  except:
-    result.effectiveDate = now()
-
-  try:
-    result.birthDate = parse(node["birthDate"].getStr, "yyyy-MM-dd", utc())
-  except:
-    result.birthDate = now()
-
 proc toJson*(email: Email): JsonNode =
   result = %*{
     "type": email.emailType,
@@ -477,33 +449,44 @@ proc handleBatchScheduleEmails(request: Request, dbConfig: DbConfig): Future[
   try:
     let reqJson = parseJson(request.body)
 
+    # Validate required fields
+    let validation = validateRequired(reqJson, "contacts")
+    if not validation.valid:
+      resp Http400, %*{"error": "Missing required fields: " & validation.missingFields.join(", ")}
+      return
+    
     # Parse contacts array
     var contacts: seq[Contact] = @[]
-    for contactJson in reqJson["contacts"]:
-      contacts.add(toContact(contactJson))
-
-    # Parse date or use current date
-    var today: DateTime
-    try:
-      if reqJson.hasKey("today"):
-        today = parse(reqJson["today"].getStr, "yyyy-MM-dd", utc())
+    var errors: seq[string] = @[]
+    
+    for i, contactNode in reqJson["contacts"]:
+      let contactResult = toContact(contactNode)
+      if contactResult.isOk:
+        contacts.add(contactResult.value)
       else:
-        today = now().utc
-    except:
-      today = now().utc
-
-    # Calculate batch emails with AEP distribution
+        errors.add("Contact #" & $i & ": " & contactResult.error.message)
+    
+    if errors.len > 0:
+      resp Http400, %*{"errors": errors}
+      return
+    
+    # Parse date parameter  
+    let today = parseDate(reqJson, "today")
+    
+    # Calculate batch emails
     let emailsBatch = calculateBatchScheduledEmails(contacts, today)
-
-    # Format response
+    
+    # Build response
     var results = newJArray()
-    for i, emails in emailsBatch:
-      results.add(%*{
-        "contactId": contacts[i].id,
-        "scheduledEmails": emailsToJson(emails)
-      })
-
-    return successResponse(%*{"results": results})
+    for i, contactEmails in emailsBatch:
+      if i < contacts.len:  # Safety check
+        results.add(%*{
+          "contactId": contacts[i].id,
+          "scheduledEmails": emailsToJson(contactEmails)
+        })
+        
+    # Return response
+    resp %*{"results": results}
   except Exception as e:
     error "Error batch scheduling emails: " & e.msg
     return errorResponse(Http500, e.msg)
@@ -535,48 +518,56 @@ when isMainModule:
       resp Http200, {"Content-Type": "text/html"}.newHttpHeaders(), swaggerUiHtml
       
     post "/schedule-emails":
-      try:
-        let reqJson = parseJson(request.body)
-        let contact = toContact(reqJson["contact"])
-  
-        # Parse date or use current date
-        var today: DateTime
-        try:
-          if reqJson.hasKey("today"):
-            today = parse(reqJson["today"].getStr, "yyyy-MM-dd", utc())
-          else:
-            today = now().utc
-        except:
-          today = now().utc
-  
+      handleJsonRequest:
+        # Validate required fields
+        let validation = validateRequired(reqJson, "contact")
+        if not validation.valid:
+          errorJson("Missing required fields: " & validation.missingFields.join(", "))
+          return
+        
+        # Parse contact using the template
+        let contactResult = parseContact(reqJson["contact"])
+        if not contactResult.isOk:
+          errorJson(contactResult.error.message, contactResult.error.code)
+          return
+        
+        let contact = contactResult.value
+        
+        # Parse date parameter
+        let today = parseDate(reqJson, "today")
+        
         # Calculate emails
         let emails = calculateScheduledEmails(contact, today)
-  
+        
         # Return response
-        resp %*{"scheduledEmails": emailsToJson(emails)}
-      except Exception as e:
-        error "Error scheduling emails: " & e.msg
-        resp Http500, %*{"error": e.msg}
+        jsonResponse({"scheduledEmails": emailsToJson(emails)})
       
     post "/schedule-emails/batch":
-      try:
-        let reqJson = parseJson(request.body)
-        var contacts: seq[Contact] = @[]
+      handleJsonRequest:
+        # Validate required fields
+        let validation = validateRequired(reqJson, "contacts")
+        if not validation.valid:
+          errorJson("Missing required fields: " & validation.missingFields.join(", "))
+          return
         
-        # Parse contacts
-        for contactNode in reqJson["contacts"]:
-          contacts.add(toContact(contactNode))
-          
-        # Parse date or use current date
-        var today: DateTime
-        try:
-          if reqJson.hasKey("today"):
-            today = parse(reqJson["today"].getStr, "yyyy-MM-dd", utc())
+        # Parse contacts array
+        var contacts: seq[Contact] = @[]
+        var errors: seq[string] = @[]
+        
+        for i, contactNode in reqJson["contacts"]:
+          let contactResult = parseContact(contactNode)
+          if contactResult.isOk:
+            contacts.add(contactResult.value)
           else:
-            today = now().utc
-        except:
-          today = now().utc
-          
+            errors.add("Contact #" & $i & ": " & contactResult.error.message)
+        
+        if errors.len > 0:
+          jsonResponse({"errors": errors}, Http400)
+          return
+        
+        # Parse date parameter  
+        let today = parseDate(reqJson, "today")
+        
         # Calculate batch emails
         let emailsBatch = calculateBatchScheduledEmails(contacts, today)
         
@@ -590,24 +581,14 @@ when isMainModule:
             })
             
         # Return response
-        resp %*{"results": results}
-      except Exception as e:
-        error "Error batch scheduling emails: " & e.msg
-        resp Http500, %*{"error": e.msg}
+        jsonResponse({"results": results})
         
     get "/contacts/@contactId/scheduled-emails":
-      try:
+      withErrorHandling(void):
         let contactId = parseInt(@"contactId")
         
-        # Parse date param or use current date
-        var today: DateTime
-        try:
-          if request.params.hasKey("today"):
-            today = parse(request.params["today"], "yyyy-MM-dd", utc())
-          else:
-            today = now().utc
-        except:
-          today = now().utc
+        # Parse date param using our template
+        let today = parseDate(request.params.table, "today", now().utc)
           
         # Here you would typically load the contact from a database
         # For testing, we'll create a mock contact
@@ -618,25 +599,23 @@ when isMainModule:
           email: "test@example.com",
           currentCarrier: "Test Carrier",
           planType: "Medicare",
-          effectiveDate: parse("2025-03-15", "yyyy-MM-dd", utc()),
-          birthDate: parse("1950-02-01", "yyyy-MM-dd", utc()),
+          effectiveDate: some(parse("2025-03-15", "yyyy-MM-dd", utc())),
+          birthDate: some(parse("1950-02-01", "yyyy-MM-dd", utc())),
           tobaccoUser: false,
           gender: "M",
           state: "TX",
           zipCode: "12345",
           agentID: 1,
-          phoneNumber: "555-1234",
-          status: "Active"
+          phoneNumber: some("555-1234"),
+          status: some("Active")
         )
           
         # Calculate scheduled emails
         let emails = calculateScheduledEmails(contact, today)
         
         # Return response
-        resp %*{"scheduledEmails": emailsToJson(emails)}
-      except:
-        resp Http404, %*{"error": "Contact not found"}
-        
+        jsonResponse({"scheduledEmails": emailsToJson(emails)})
+
   # Start the server
   let settings = newSettings(port=Port(port))
   var jester = initJester(routes, settings=settings)

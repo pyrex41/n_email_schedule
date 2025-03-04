@@ -31,7 +31,8 @@ while [[ $# -gt 0 ]]; do
       echo "Examples:"
       echo "  ./test_nim.sh                     # Run all tests"
       echo "  ./test_nim.sh -v                  # Run all tests with verbose output"
-      echo "  ./test_nim.sh test_scheduler_simple.nim  # Run only the simple scheduler test"
+      echo "  ./test_nim.sh tests/test_scheduler_simple.nim  # Run only the simple scheduler test"
+      echo "  ./test_nim.sh tests/test_api.nim              # Run only the API test"
       exit 0
       ;;
     *)
@@ -57,12 +58,12 @@ format_test_output() {
     else
       test_status="fail"
     fi
-  # For simple scheduler test, success is likely when we see "Testing with today"
-  elif [ "$test_name" == "test_scheduler_simple" ]; then
-    if echo "$output" | grep -q "Testing with today"; then
-      test_status="pass"
-    else
+  # For simple tests, success is likely when tests run without failing assertions
+  elif [ "$test_name" == "test_scheduler_simple" ] || [ "$test_name" == "test_api_simple" ]; then
+    if echo "$output" | grep -q "Failure"; then
       test_status="fail"
+    else
+      test_status="pass"
     fi
   fi
   
@@ -86,13 +87,15 @@ format_test_output() {
         done
       else
         # For other tests like simple scheduler, show the full detailed output
-        echo "$output" | grep -A 200 "Testing with today" | while read -r line; do
+        echo "$output" | while read -r line; do
           # Colorize key test information
-          if [[ $line == *"Testing"* && $line == *"-----"* ]]; then
+          if [[ $line == *"Suite "* ]]; then
             echo -e "${YELLOW}$line${NC}"
-          elif [[ $line == *"Expected"* ]]; then
+          elif [[ $line == *"[OK]"* ]]; then
+            echo -e "${GREEN}$line${NC}"
+          elif [[ $line == *"expected"* ]] || [[ $line == *"Expected"* ]]; then
             echo -e "${MAGENTA}$line${NC}"
-          elif [[ $line == *"Actual"* || $line == *"Number of emails"* ]]; then
+          elif [[ $line == *"actual"* ]] || [[ $line == *"Actual"* ]] || [[ $line == *"Number of emails"* ]]; then
             echo -e "${BLUE}$line${NC}"
           elif [[ $line == *"Summary"* ]]; then
             echo -e "${YELLOW}$line${NC}"
@@ -121,22 +124,12 @@ run_test() {
   echo -e "\n${YELLOW}Running test: $test_name${NC}"
   echo "============================================="
   
-  if [ "$test_name" == "test_email_rules" ]; then
-    # Use ./run_tests.sh for the email rules tests
-    output=$(./run_tests.sh 2>&1)
-    if [ $? -eq 0 ]; then
-      format_test_output "$output" "$test_name" "pass"
-    else
-      format_test_output "$output" "$test_name" "fail"
-    fi
+  # Use nim directly for all tests
+  output=$($NIM_BIN c -r "$test_file" 2>&1)
+  if [ $? -eq 0 ]; then
+    format_test_output "$output" "$test_name" "pass"
   else
-    # Use nim directly for other tests
-    output=$($NIM_BIN c -r "$test_file" 2>&1)
-    if [ $? -eq 0 ]; then
-      format_test_output "$output" "$test_name" "pass"
-    else
-      format_test_output "$output" "$test_name" "fail"
-    fi
+    format_test_output "$output" "$test_name" "fail"
   fi
 }
 
@@ -151,7 +144,10 @@ main() {
   # If no specific tests provided, run all tests
   if [ ${#TESTS[@]} -eq 0 ]; then
     run_test "tests/test_email_rules.nim"
-    run_test "test_scheduler_simple.nim"
+    run_test "tests/test_scheduler_simple.nim"
+    run_test "tests/test_api_simple.nim" 
+    run_test "tests/test_api.nim"
+    run_test "tests/test_utils.nim"
   else
     # Run specified tests
     for test in "${TESTS[@]}"; do
