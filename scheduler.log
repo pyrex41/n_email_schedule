@@ -1,0 +1,73 @@
+2025-03-04T09:38:27 INFO: Starting Medicare Email Scheduler
+2025-03-04T09:38:27 INFO: Running in dry-run mode (no emails will be saved to database)
+2025-03-04T09:38:27 INFO: Using database URL: https://medicare-portal-pyrex41.turso.io
+2025-03-04T09:38:27 ERROR: Error during email scheduling: value out of range: 1955 notin 1 .. 31
+2025-03-04T09:39:03 INFO: Starting Medicare Email Scheduler
+2025-03-04T09:39:03 INFO: Running in dry-run mode (no emails will be saved to database)
+2025-03-04T09:39:03 INFO: Using database URL: https://medicare-portal-pyrex41.turso.io
+2025-03-04T09:39:03 ERROR: Error during email scheduling: value out of range: 1955 notin 1 .. 31
+2025-03-04T09:39:57 INFO: Starting Medicare Email Scheduler
+2025-03-04T09:39:57 INFO: Running in dry-run mode (no emails will be saved to database)
+2025-03-04T09:39:57 INFO: Using database URL: https://medicare-portal-pyrex41.turso.io
+2025-03-04T09:39:57 INFO: Using test contacts for dry run
+2025-03-04T09:39:57 INFO: Processing 3 contacts
+2025-03-04T09:39:57 INFO: Generated 1 emails for John Doe
+2025-03-04T09:39:57 INFO: Would schedule CarrierUpdate email for john@example.com on 2025-04-03
+2025-03-04T09:39:57 INFO: Generated 1 emails for Jane Smith
+2025-03-04T09:39:57 INFO: Would schedule CarrierUpdate email for jane@example.com on 2025-04-03
+2025-03-04T09:39:57 INFO: Generated 0 emails for Bob Johnson
+2025-03-04T09:39:57 INFO: Email scheduling completed: 2 emails would be scheduled
+2025-03-04T09:40:32 INFO: Starting Medicare Email Scheduler
+2025-03-04T09:40:32 INFO: Running in dry-run mode (no emails will be saved to database)
+2025-03-04T09:40:32 INFO: Using database URL: https://medicare-portal-pyrex41.turso.io
+2025-03-04T09:40:32 INFO: Using test contacts for dry run
+2025-03-04T09:40:32 INFO: Processing 3 contacts
+2025-03-04T09:40:32 INFO: Generated 1 emails for John Doe
+2025-03-04T09:40:32 INFO: Would schedule CarrierUpdate email for john@example.com on 2025-04-03
+2025-03-04T09:40:32 INFO: Generated 1 emails for Jane Smith
+2025-03-04T09:40:32 INFO: Would schedule CarrierUpdate email for jane@example.com on 2025-04-03
+2025-03-04T09:40:32 INFO: Generated 0 emails for Bob Johnson
+2025-03-04T09:40:32 INFO: Email scheduling completed: 2 emails would be scheduled
+2025-03-04T09:40:49 INFO: Starting Medicare Email Scheduler
+2025-03-04T09:40:49 INFO: Running in dry-run mode (no emails will be saved to database)
+2025-03-04T09:40:49 INFO: Using database URL: https://medicare-portal-pyrex41.turso.io
+2025-03-04T09:40:49 INFO: Using test contacts for dry run
+2025-03-04T09:40:49 INFO: Processing 3 contacts
+2025-03-04T09:40:49 INFO: Generated 1 emails for John Doe
+2025-03-04T09:40:49 INFO: Would schedule CarrierUpdate email for john@example.com on 2025-04-03
+2025-03-04T09:40:49 INFO: Generated 1 emails for Jane Smith
+2025-03-04T09:40:49 INFO: Would schedule CarrierUpdate email for jane@example.com on 2025-04-03
+2025-03-04T09:40:49 INFO: Generated 0 emails for Bob Johnson
+2025-03-04T09:40:49 INFO: Email scheduling completed: 2 emails would be scheduled
+2025-03-04T09:53:30 INFO: Starting Medicare Email Scheduler
+2025-03-04T09:53:30 INFO: Running in dry-run mode (no emails will be saved to database)
+2025-03-04T09:53:30 INFO: Using database URL: https://medicare-portal-pyrex41.turso.io
+2025-03-04T09:53:30 INFO: Using test contacts for dry run
+2025-03-04T09:53:30 INFO: Processing 3 contacts
+2025-03-04T09:53:30 ERROR: Error during email scheduling: value out of range: 2025 notin 1 .. 31
+2025-03-04T09:55:29 INFO: Starting Medicare Email Scheduler
+2025-03-04T09:55:29 INFO: Running in dry-run mode (no emails will be saved to database)
+2025-03-04T09:55:29 INFO: Using database URL: https://medicare-portal-pyrex41.turso.io
+2025-03-04T09:55:29 INFO: Using test contacts for dry run
+2025-03-04T09:55:29 INFO: Processing 3 contacts
+2025-03-04T09:55:29 INFO: Generated 1 emails for John Doe
+2025-03-04T09:55:29 INFO: Would schedule CarrierUpdate email for john@example.com on 2025-04-03
+2025-03-04T09:55:29 INFO: Generated 1 emails for Jane Smith
+2025-03-04T09:55:29 INFO: Would schedule CarrierUpdate email for jane@example.com on 2025-04-03
+2025-03-04T09:55:29 INFO: Generated 0 emails for Bob Johnson
+2025-03-04T09:55:29 INFO: Email scheduling completed: 2 emails would be scheduled
+2025-03-04T09:55:36 INFO: Starting Medicare Email Scheduler
+2025-03-04T09:55:36 INFO: Starting API server on port 5000
+2025-03-04T09:55:36 INFO: API server would start on port 5000 if Jester were properly set up
+2025-03-04T09:55:36 INFO: You need to install Jester and compile with -d:withApi
+2025-03-04T09:56:59 INFO: Starting Medicare Email Scheduler
+2025-03-04T09:56:59 INFO: Running in dry-run mode (no emails will be saved to database)
+2025-03-04T09:56:59 INFO: Using database URL: https://medicare-portal-pyrex41.turso.io
+2025-03-04T09:56:59 INFO: Using test contacts for dry run
+2025-03-04T09:56:59 INFO: Processing 3 contacts
+2025-03-04T09:56:59 INFO: Generated 1 emails for John Doe
+2025-03-04T09:56:59 INFO: Would schedule CarrierUpdate email for john@example.com on 2025-04-03
+2025-03-04T09:56:59 INFO: Generated 1 emails for Jane Smith
+2025-03-04T09:56:59 INFO: Would schedule CarrierUpdate email for jane@example.com on 2025-04-03
+2025-03-04T09:56:59 INFO: Generated 0 emails for Bob Johnson
+2025-03-04T09:56:59 INFO: Email scheduling completed: 2 emails would be scheduled

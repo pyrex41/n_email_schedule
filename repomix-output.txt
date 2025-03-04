@@ -1,0 +1,1124 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+================================================================
+File Summary
+================================================================
+
+Purpose:
+--------
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+
+File Format:
+------------
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Multiple file entries, each consisting of:
+  a. A separator line (================)
+  b. The file path (File: path/to/file)
+  c. Another separator line
+  d. The full contents of the file
+  e. A blank line
+
+Usage Guidelines:
+-----------------
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+
+Notes:
+------
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+
+Additional Info:
+----------------
+
+================================================================
+Directory Structure
+================================================================
+src/
+  database.nim
+  dotenv.nim
+  models.nim
+  n_email_schedule.nim
+  rules.nim
+  scheduler.nim
+tests/
+  test_scheduler.nim
+.env.sample
+CLAUDE.md
+n_email_schedule.nimble
+README.md
+run.sh
+
+================================================================
+Files
+================================================================
+
+================
+File: src/database.nim
+================
+import httpclient, json, asyncdispatch, os, times, strutils
+import models, dotenv
+
+type
+  DbConfig* = object
+    baseUrl*: string
+    authToken*: string
+
+proc newDbConfig*(url: string, token: string): DbConfig =
+  result = DbConfig(
+    baseUrl: url.strip(trailing = true),
+    authToken: token
+  )
+
+proc getConfigFromEnv*(): DbConfig =
+  # Try to load from .env file first (won't override existing env vars)
+  loadEnv()
+  
+  result = DbConfig(
+    baseUrl: getEnv("TURSO_DB_URL", "https://medicare-portal-pyrex41.turso.io"),
+    authToken: getEnv("TURSO_AUTH_TOKEN", "")
+  )
+
+proc parseIsoDate(dateStr: string): DateTime =
+  # Parse ISO date format like "2023-04-15T00:00:00Z"
+  try:
+    result = parse(dateStr, "yyyy-MM-dd'T'HH:mm:ss'Z'", utc())
+  except:
+    # Fallback for simpler date format
+    try:
+      result = parse(dateStr, "yyyy-MM-dd", utc())
+    except:
+      # Default to current date if parsing fails
+      result = now()
+
+proc execQuery*(config: DbConfig, sql: string, args: JsonNode = newJArray()): Future[JsonNode] {.async.} =
+  let client = newAsyncHttpClient()
+  let endpoint = config.baseUrl & "/v2/pipeline"
+  
+  client.headers = newHttpHeaders({
+    "Content-Type": "application/json",
+    "Authorization": "Bearer " & config.authToken
+  })
+  
+  let reqBody = %*{
+    "requests": [
+      {
+        "type": "execute",
+        "stmt": {
+          "sql": sql,
+          "args": args
+        }
+      },
+      {"type": "close"}
+    ]
+  }
+  
+  let response = await client.request(endpoint, httpMethod = HttpPost, body = $reqBody)
+  let body = await response.body
+  result = parseJson(body)
+  client.close()
+
+proc getContacts*(config: DbConfig): Future[seq[Contact]] {.async.} =
+  let query = """
+    SELECT 
+      id, first_name, last_name, email, 
+      current_carrier, plan_type, effective_date, birth_date,
+      tobacco_user, gender, state, zip_code, agent_id, 
+      phone_number, status 
+    FROM contacts
+  """
+  
+  let response = await execQuery(config, query)
+  var contacts: seq[Contact] = @[]
+  
+  if "results" in response and response["results"].len > 0:
+    let result = response["results"][0]
+    if "rows" in result:
+      for row in result["rows"]:
+        let contact = Contact(
+          id: row[0].getInt,
+          firstName: row[1].getStr,
+          lastName: row[2].getStr,
+          email: row[3].getStr,
+          currentCarrier: row[4].getStr,
+          planType: row[5].getStr,
+          effectiveDate: parseIsoDate(row[6].getStr),
+          birthDate: parseIsoDate(row[7].getStr),
+          tobaccoUser: row[8].getBool,
+          gender: row[9].getStr,
+          state: row[10].getStr,
+          zipCode: row[11].getStr,
+          agentID: row[12].getInt,
+          phoneNumber: row[13].getStr,
+          status: row[14].getStr
+        )
+        contacts.add(contact)
+  
+  return contacts
+
+proc saveEmail*(config: DbConfig, email: Email, contactId: int): Future[bool] {.async.} =
+  let query = """
+    INSERT INTO contact_events
+    (contact_id, event_type, metadata, created_at)
+    VALUES (?, ?, ?, ?)
+  """
+  
+  let metadata = %*{
+    "type": email.emailType,
+    "status": email.status,
+    "reason": email.reason
+  }
+  
+  let args = %*[
+    {"type": "integer", "value": contactId},
+    {"type": "text", "value": "email_scheduled"},
+    {"type": "text", "value": $metadata},
+    {"type": "text", "value": email.scheduledAt.format("yyyy-MM-dd'T'HH:mm:ss'Z'")}
+  ]
+  
+  let response = await execQuery(config, query, args)
+  return "results" in response
+
+================
+File: src/dotenv.nim
+================
+import os, strutils
+
+proc loadEnv*(filename = ".env") =
+  ## Loads environment variables from a .env file
+  if not fileExists(filename):
+    return
+    
+  let content = readFile(filename)
+  for line in content.splitLines():
+    # Skip comments and empty lines
+    let trimmedLine = line.strip()
+    if trimmedLine.len == 0 or trimmedLine.startsWith("#"):
+      continue
+      
+    # Parse KEY=VALUE format
+    let parts = trimmedLine.split('=', 1)
+    if parts.len != 2:
+      continue
+      
+    let 
+      key = parts[0].strip()
+      value = parts[1].strip()
+    
+    # Skip if already set in environment (don't override)
+    if getEnv(key) == "":
+      putEnv(key, value)
+
+proc getEnvOrEmpty*(key: string): string =
+  ## Get environment variable or empty string if not found
+  result = getEnv(key)
+
+================
+File: src/models.nim
+================
+import times
+
+type
+  Contact* = object
+    id*: int
+    firstName*, lastName*, email*: string
+    currentCarrier*, planType*: string
+    effectiveDate*, birthDate*: DateTime
+    tobaccoUser*: bool
+    gender*, state*, zipCode*, phoneNumber*, status*: string
+    agentID*: int
+
+  Email* = object
+    emailType*, status*: string
+    scheduledAt*: DateTime
+    reason*: string
+
+================
+File: src/n_email_schedule.nim
+================
+# Medicare Email Scheduler
+# 
+# Schedules emails based on Medicare enrollment rules
+
+import asyncdispatch, times, strutils, logging, parseopt
+import models, scheduler, database, dotenv
+
+type
+  AppConfig = object
+    isDryRun: bool
+    logLevel: Level
+
+proc setupLogging(level: Level = lvlInfo) =
+  let consoleLogger = newConsoleLogger()
+  let fileLogger = newFileLogger("scheduler.log", fmtStr = "$datetime $levelname: $message")
+  addHandler(consoleLogger)
+  addHandler(fileLogger)
+  setLogFilter(level)
+
+proc parseCommandLine(): AppConfig =
+  var 
+    p = initOptParser()
+    appConfig = AppConfig(isDryRun: false, logLevel: lvlInfo)
+  
+  while true:
+    p.next()
+    case p.kind
+    of cmdEnd: break
+    of cmdShortOption, cmdLongOption:
+      case p.key
+      of "d", "dry-run":
+        appConfig.isDryRun = true
+      of "v", "verbose":
+        appConfig.logLevel = lvlDebug
+      of "q", "quiet":
+        appConfig.logLevel = lvlWarn
+      of "h", "help":
+        echo "Medicare Email Scheduler"
+        echo "Usage: n_email_schedule [options]"
+        echo "Options:"
+        echo "  -d, --dry-run      Run without saving emails to database"
+        echo "  -v, --verbose      Enable verbose logging"
+        echo "  -q, --quiet        Reduce log output"
+        echo "  -h, --help         Show this help message"
+        quit(0)
+      else:
+        echo "Unknown option: ", p.key
+        quit(1)
+    of cmdArgument:
+      echo "Unknown argument: ", p.key
+      quit(1)
+  
+  return appConfig
+
+proc getTestContacts(): seq[Contact] =
+  # Create test contacts for dry-run mode or fallback
+  result = @[
+    Contact(
+      id: 1,
+      firstName: "John",
+      lastName: "Doe",
+      email: "john@example.com",
+      currentCarrier: "Test Carrier",
+      planType: "Medicare",
+      effectiveDate: now().utc,  # Current date
+      birthDate: now().utc,      # Current date (will be adjusted in the try block)
+      tobaccoUser: false,
+      gender: "M",
+      state: "TX",
+      zipCode: "12345",
+      agentID: 1,
+      phoneNumber: "555-1234",
+      status: "Active"
+    ),
+    Contact(
+      id: 2,
+      firstName: "Jane",
+      lastName: "Smith",
+      email: "jane@example.com",
+      currentCarrier: "Test Carrier",
+      planType: "Medicare",
+      effectiveDate: now().utc,  # Current date
+      birthDate: now().utc,      # Current date (will be adjusted in the try block)
+      tobaccoUser: false,
+      gender: "F",
+      state: "OR",
+      zipCode: "97123",
+      agentID: 2,
+      phoneNumber: "555-5678",
+      status: "Active"
+    ),
+    Contact(
+      id: 3,
+      firstName: "Bob",
+      lastName: "Johnson",
+      email: "bob@example.com",
+      currentCarrier: "Test Carrier",
+      planType: "Medicare",
+      effectiveDate: now().utc,  # Current date
+      birthDate: now().utc,      # Current date (will be adjusted in the try block)
+      tobaccoUser: false,
+      gender: "M",
+      state: "CT",
+      zipCode: "06001",
+      agentID: 3,
+      phoneNumber: "555-9012",
+      status: "Active"
+    )
+  ]
+  
+  # Set the birthdates to reasonable values (adjust the current date)
+  try:
+    # Get the current year
+    let currentYear = now().utc.year
+    
+    # Test contact 1: 70 years old, born on Jan 1
+    var bd1 = dateTime(1, mJan, currentYear - 70, 0, 0, 0, zone = utc())
+    result[0].birthDate = bd1
+    
+    # Test contact 2: 72 years old, born on May 15
+    var bd2 = dateTime(15, mMay, currentYear - 72, 0, 0, 0, zone = utc())
+    result[1].birthDate = bd2
+    
+    # Test contact 3: 68 years old, born on June 10
+    var bd3 = dateTime(10, mJun, currentYear - 68, 0, 0, 0, zone = utc())
+    result[2].birthDate = bd3
+    
+    # Set effective dates 5 years ago
+    result[0].effectiveDate = dateTime(1, mFeb, currentYear - 5, 0, 0, 0, zone = utc())
+    result[1].effectiveDate = dateTime(1, mJun, currentYear - 5, 0, 0, 0, zone = utc())
+    result[2].effectiveDate = dateTime(1, mJul, currentYear - 5, 0, 0, 0, zone = utc())
+  except:
+    # If there's any error, leave the dates as current date
+    debug "Failed to set custom dates for test contacts"
+
+proc run() {.async.} =
+  # Parse command line options
+  let config = parseCommandLine()
+  
+  # Setup logging
+  setupLogging(config.logLevel)
+  
+  # Load environment variables from .env file if it exists
+  loadEnv()
+  
+  info "Starting Medicare Email Scheduler"
+  if config.isDryRun:
+    info "Running in dry-run mode (no emails will be saved to database)"
+  
+  let 
+    dbConfig = getConfigFromEnv()
+    today = now()
+  
+  info "Using database URL: " & dbConfig.baseUrl
+  
+  try:
+    # Get contacts - from test data or database
+    var contacts: seq[Contact]
+    
+    if config.isDryRun:
+      contacts = getTestContacts()
+      info "Using test contacts for dry run"
+    else:
+      try:
+        contacts = await getContacts(dbConfig)
+        info "Retrieved " & $contacts.len & " contacts from database"
+      except Exception as e:
+        error "Failed to connect to database, falling back to test contacts: " & e.msg
+        contacts = getTestContacts()
+    
+    info "Processing " & $contacts.len & " contacts"
+    
+    var totalEmails = 0
+    
+    # Process each contact
+    for contact in contacts:
+      try:
+        let emails = calculateScheduledEmails(contact, today)
+        info "Generated " & $emails.len & " emails for " & contact.firstName & " " & contact.lastName
+        totalEmails += emails.len
+        
+        # Save emails to database (unless in dry-run mode)
+        for email in emails:
+          if config.isDryRun:
+            info "Would schedule " & email.emailType & " email for " & contact.email & " on " & 
+                email.scheduledAt.format("yyyy-MM-dd")
+          elif await saveEmail(dbConfig, email, contact.id):
+            info "Scheduled " & email.emailType & " email for " & contact.email & " on " & 
+                email.scheduledAt.format("yyyy-MM-dd")
+          else:
+            error "Failed to schedule " & email.emailType & " email for " & contact.email
+      except Exception as e:
+        error "Error processing contact " & contact.firstName & " " & contact.lastName & ": " & e.msg
+    
+    info "Email scheduling completed: " & $totalEmails & " emails " & 
+        (if config.isDryRun: "would be " else: "") & "scheduled"
+  except Exception as e:
+    let msg = e.msg
+    error "Error during email scheduling: " & msg
+    # Stacktrace for debug mode
+    debug getStackTrace(e)
+
+proc main() =
+  waitFor run()
+
+when isMainModule:
+  main()
+
+================
+File: src/rules.nim
+================
+import tables
+
+type
+  StateRule* = enum
+    Birthday, Effective, YearRound, None
+
+  RuleParams* = tuple
+    startOffset: int   # days before reference date
+    duration: int      # period duration in days
+
+const
+  StateRules = {
+    # Birthday states
+    "CA": (rule: Birthday, params: (-30, 60)),  # 60-day period, 30 days before
+    "ID": (rule: Birthday, params: (0, 63)),    # 63-day period from birthday
+    "IL": (rule: Birthday, params: (0, 45)),    # 45-day period from birthday
+    "KY": (rule: Birthday, params: (0, 60)),    # 60-day period from birthday
+    "LA": (rule: Birthday, params: (-30, 93)),  # 93-day period, 30 days before
+    "MD": (rule: Birthday, params: (0, 31)),    # 31-day period from birthday
+    "NV": (rule: Birthday, params: (0, 60)),    # 60-day period from birth month
+    "OK": (rule: Birthday, params: (0, 60)),    # 60-day period from birthday
+    "OR": (rule: Birthday, params: (0, 31)),    # 31-day period from birthday
+    
+    # Effective date states
+    "MO": (rule: Effective, params: (-30, 63)), # 63-day period, 30 days before
+    
+    # Year-round states
+    "CT": (rule: YearRound, params: (0, 0)),
+    "MA": (rule: YearRound, params: (0, 0)),
+    "NY": (rule: YearRound, params: (0, 0)),
+    "WA": (rule: YearRound, params: (0, 0))
+  }.toTable
+
+proc getStateRule*(state: string): StateRule =
+  if state in StateRules:
+    result = StateRules[state].rule
+  else:
+    result = None
+
+proc getRuleParams*(state: string): RuleParams =
+  if state in StateRules:
+    result = StateRules[state].params
+  else:
+    result = (0, 0)
+
+================
+File: src/scheduler.nim
+================
+import times, algorithm
+import models, rules
+
+type
+  EmailType* = enum
+    Birthday = "Birthday",
+    Effective = "Effective",
+    AEP = "AEP",
+    CarrierUpdate = "CarrierUpdate"
+
+proc isInExclusionWindow(date: DateTime, eewStart, eewEnd: DateTime): bool =
+  date >= eewStart and date < eewEnd
+
+proc getYearlyDate(date: DateTime, year: int): DateTime =
+  try:
+    # Convert month (1-based) to Month enum (0-based)
+    let monthEnum = Month(ord(date.month) - 1)
+    
+    # Get valid day (ensure it's 1-31)
+    let day = min(date.monthday, 28)  # Safe value for all months
+    
+    result = dateTime(day, monthEnum, year, 0, 0, 0, zone = utc())
+    
+    # If date has passed this year, use next year
+    if result < now():
+      result = dateTime(day, monthEnum, year + 1, 0, 0, 0, zone = utc())
+  except:
+    # Fallback to January 1 of the given year
+    result = dateTime(1, mJan, year, 0, 0, 0, zone = utc())
+
+proc getExclusionWindow(contact: Contact, today: DateTime): tuple[start, endDate: DateTime] =
+  try:
+    let 
+      stateRule = getStateRule(contact.state)
+      (startOffset, duration) = getRuleParams(contact.state)
+      refDate = if stateRule == Birthday: contact.birthDate else: contact.effectiveDate
+      ruleStart = getYearlyDate(refDate, today.year) + startOffset.days
+      ruleEnd = ruleStart + duration.days
+    
+    result = (start: ruleStart - 60.days, endDate: ruleEnd)
+  except:
+    # Fallback to a safe default if there's any error
+    let currentDate = now().utc
+    result = (
+      start: currentDate - 30.days, 
+      endDate: currentDate + 30.days
+    )
+
+proc scheduleEmail(emails: var seq[Email], emailType: EmailType, 
+                  date: DateTime, eewStart, eewEnd: DateTime, 
+                  today: DateTime, reason = ""): bool =
+  if date >= today and not isInExclusionWindow(date, eewStart, eewEnd):
+    emails.add(Email(
+      emailType: $emailType,
+      status: "Pending",
+      scheduledAt: date,
+      reason: reason
+    ))
+    return true
+  return false
+
+proc calculateScheduledEmails*(contact: Contact, today: DateTime): seq[Email] =
+  result = @[]
+  
+  try:
+    let stateRule = getStateRule(contact.state)
+    let currentYear = today.year
+    
+    # Skip for year-round enrollment states
+    if stateRule == YearRound:
+      return result
+
+    # Calculate exclusion window
+    let (eewStart, eewEnd) = getExclusionWindow(contact, today)
+    
+    # Track suppressed emails for post-exclusion window email
+    var suppressed: seq[EmailType] = @[]
+    
+    # Birthday email (14 days before)
+    let 
+      birthdayDate = getYearlyDate(contact.birthDate, currentYear)
+      birthdayEmailDate = birthdayDate - 14.days
+    
+    if not scheduleEmail(result, Birthday, birthdayEmailDate, eewStart, eewEnd, today):
+      if isInExclusionWindow(birthdayEmailDate, eewStart, eewEnd):
+        suppressed.add(Birthday)
+    
+    # Effective date email (30 days before)
+    let 
+      effectiveDate = getYearlyDate(contact.effectiveDate, currentYear)
+      effectiveEmailDate = effectiveDate - 30.days
+    
+    if not scheduleEmail(result, Effective, effectiveEmailDate, eewStart, eewEnd, today):
+      if isInExclusionWindow(effectiveEmailDate, eewStart, eewEnd):
+        suppressed.add(Effective)
+    
+    # AEP emails (4 weeks starting August 15)
+    let aepStart = dateTime(15, mAug, currentYear, 0, 0, 0, zone = utc())
+    for week in 0..3:
+      let aepDate = aepStart + (week * 7).days
+      discard scheduleEmail(result, AEP, aepDate, eewStart, eewEnd, today)
+    
+    # Post-exclusion window email
+    if suppressed.len > 0:
+      let 
+        postEEWDate = eewEnd + 1.days
+        postEEWType = if stateRule == Birthday: Birthday else: Effective
+        
+        # Create min/max dates that will never trigger exclusion window check
+        farPastDate = dateTime(1, mJan, currentYear - 10, 0, 0, 0, zone = utc())
+        farFutureDate = dateTime(28, mDec, currentYear + 10, 0, 0, 0, zone = utc())
+      
+      discard scheduleEmail(
+        result, postEEWType, postEEWDate, farPastDate, farFutureDate, today, 
+        "Post exclusion window email"
+      )
+    
+    # Carrier-specific email
+    if contact.currentCarrier != "":
+      discard scheduleEmail(
+        result, CarrierUpdate, today + 30.days, eewStart, eewEnd, today
+      )
+  except Exception as e:
+    # Fallback: just add a carrier update email if we have errors
+    if contact.currentCarrier != "":
+      result.add(Email(
+        emailType: $CarrierUpdate,
+        status: "Pending",
+        scheduledAt: today + 30.days,
+        reason: "Fallback email due to error: " & e.msg
+      ))
+  
+  # Sort emails by scheduled date
+  if result.len > 0:
+    try:
+      result.sort(proc(x, y: Email): int = cmp(x.scheduledAt, y.scheduledAt))
+    except:
+      # Just return unsorted if sorting fails
+      discard
+
+================
+File: tests/test_scheduler.nim
+================
+import unittest, times
+import ../src/models, ../src/rules, ../src/scheduler
+
+suite "Scheduler Tests":
+  setup:
+    let 
+      today = dateTime(1, mMar, 2025, 0, 0, 0, zone = utc())
+      jan1Birthday = Contact(
+        id: 1,
+        firstName: "John",
+        lastName: "Doe",
+        email: "john@example.com", 
+        currentCarrier: "Test Carrier",
+        planType: "Medicare",
+        effectiveDate: dateTime(1, mFeb, 2015, 0, 0, 0, zone = utc()),
+        birthDate: dateTime(1, mJan, 1950, 0, 0, 0, zone = utc()),
+        tobaccoUser: false,
+        gender: "M",
+        state: "TX",
+        zipCode: "12345",
+        agentID: 1,
+        phoneNumber: "555-1234",
+        status: "Active"
+      )
+      oregonContact = Contact(
+        id: 2,
+        firstName: "Jane",
+        lastName: "Smith", 
+        email: "jane@example.com",
+        currentCarrier: "Test Carrier",
+        planType: "Medicare",
+        effectiveDate: dateTime(1, mJun, 2015, 0, 0, 0, zone = utc()),
+        birthDate: dateTime(15, mMay, 1950, 0, 0, 0, zone = utc()),
+        tobaccoUser: false,
+        gender: "F",
+        state: "OR",
+        zipCode: "97123",
+        agentID: 2,
+        phoneNumber: "555-5678",
+        status: "Active"
+      )
+      ctContact = Contact(
+        id: 3,
+        firstName: "Bob",
+        lastName: "Johnson",
+        email: "bob@example.com",
+        currentCarrier: "Test Carrier",
+        planType: "Medicare",
+        effectiveDate: dateTime(1, mJul, 2015, 0, 0, 0, zone = utc()),
+        birthDate: dateTime(10, mJun, 1952, 0, 0, 0, zone = utc()),
+        tobaccoUser: false,
+        gender: "M",
+        state: "CT",
+        zipCode: "06001",
+        agentID: 3,
+        phoneNumber: "555-9012",
+        status: "Active"
+      )
+  
+  test "January First Birthday Contact":
+    let emails = calculateScheduledEmails(jan1Birthday, today)
+    check emails.len == 4  # Birthday, Effective, AEP (1), CarrierUpdate
+    
+    # Birthday email should be scheduled for Dec 18, 2025 (14 days before)
+    let birthdayEmail = emails.filterIt(it.emailType == "Birthday")[0]
+    check birthdayEmail.scheduledAt == dateTime(18, mDec, 2025, 0, 0, 0, zone = utc())
+    
+    # Effective email should be scheduled for Jan 2, 2026 (30 days before)
+    let effectiveEmail = emails.filterIt(it.emailType == "Effective")[0]
+    check effectiveEmail.scheduledAt == dateTime(2, mJan, 2026, 0, 0, 0, zone = utc())
+    
+    # AEP email should be scheduled for Aug 15, 2025
+    let aepEmail = emails.filterIt(it.emailType == "AEP")[0]
+    check aepEmail.scheduledAt == dateTime(15, mAug, 2025, 0, 0, 0, zone = utc())
+  
+  test "Oregon Contact with Birthday Rule":
+    # Oregon has Birthday rule with exclusion window (31 days starting on birthday)
+    let emails = calculateScheduledEmails(oregonContact, today)
+    
+    # Check if we have a post-exclusion window email
+    let postExclusionEmails = emails.filterIt(it.reason == "Post exclusion window email")
+    check postExclusionEmails.len > 0
+    check postExclusionEmails[0].emailType == "Birthday"
+  
+  test "Year-Round Enrollment State (CT)":
+    let emails = calculateScheduledEmails(ctContact, today)
+    # No emails should be scheduled for year-round enrollment states
+    check emails.len == 0
+
+================
+File: .env.sample
+================
+# Medicare Email Scheduler Configuration
+# Copy this file to .env and fill in your values
+
+# Turso Database Configuration
+TURSO_DB_URL=https://your-database-name-org.turso.io
+TURSO_AUTH_TOKEN=your_turso_auth_token
+
+# Optional Configuration
+# LOG_LEVEL=info  # debug, info, warning, error
+
+================
+File: CLAUDE.md
+================
+# CLAUDE.md - Assistant Guidelines for n_email_schedule
+
+## Build & Run Commands
+- Install dependencies: `nimble install`
+- Compile: `nim c src/n_email_schedule.nim`
+- Compile and run: `nim c -r src/n_email_schedule.nim`
+- Recommended run method: `./run.sh [options]`
+- Run options: `--dry-run`, `--verbose`, `--quiet`
+
+## Test Commands
+- Run all tests: `nim c -r tests/test_scheduler.nim`
+- Run single test: `nim c -r tests/test_scheduler.nim "Test Name"`
+
+## Code Style Guidelines
+- Types: PascalCase (e.g., `Contact`, `Email`)
+- Variables/Functions: camelCase (e.g., `firstName`, `getStateRule`)
+- Exports: Mark with `*` suffix (e.g., `Email*`)
+- Indentation: 2 spaces
+- Imports: Group at top, stdlib first, then local modules
+- Error handling: Use try-except blocks with fallbacks
+- Function signatures: Include return types and `{.async.}` where needed
+- File structure: Follow modular organization as in README
+- Documentation: Include comments for complex logic
+- Async: Use `asyncdispatch` for I/O operations, mark with `{.async.}`
+
+================
+File: n_email_schedule.nimble
+================
+# Package
+
+version       = "0.1.0"
+author        = "pyrex41"
+description   = "Medicare Email Scheduler"
+license       = "MIT"
+srcDir        = "src"
+bin           = @["n_email_schedule"]
+
+
+# Dependencies
+
+requires "nim >= 2.2.2"
+requires "asyncdispatch"
+requires "httpclient"
+requires "times"
+requires "json"
+requires "strutils"
+requires "tables"
+requires "sequtils"
+requires "unittest"
+
+================
+File: README.md
+================
+# Medicare Email Scheduler (Nim)
+
+A concise and robust implementation of a Medicare email scheduler in Nim. This application schedules emails for Medicare enrollees based on their birthdate, effective date, and state-specific Medicare enrollment rules.
+
+## Features
+
+- Supports state-specific Medicare enrollment rules
+- Handles exclusion windows for email scheduling
+- Schedules birthday, effective date, AEP, and carrier update emails
+- Uses the Turso database API for data storage
+- Asynchronous database operations
+- Comprehensive logging
+- Supports configuration via .env file
+- Dry-run mode for testing without a database
+
+## Structure
+
+The application is organized into several modules:
+
+- `models.nim`: Defines the core data structures (Contact and Email)
+- `rules.nim`: Contains state-specific Medicare enrollment rules and helper functions
+- `scheduler.nim`: Implements the email scheduling logic
+- `database.nim`: Handles Turso database interaction
+- `dotenv.nim`: Handles loading environment variables from .env file
+- `n_email_schedule.nim`: Main application entry point
+
+## Configuration
+
+The application can be configured using environment variables or a .env file:
+
+### Using a .env File (Recommended)
+
+1. Copy the sample .env file:
+   ```bash
+   cp .env.sample .env
+   ```
+
+2. Edit the .env file and fill in your Turso database credentials:
+   ```
+   TURSO_DB_URL=https://your-database-name-org.turso.io
+   TURSO_AUTH_TOKEN=your_turso_auth_token
+   ```
+
+3. The application will automatically load variables from the .env file when it starts.
+
+### Getting a Turso Auth Token
+
+If you don't have a Turso auth token yet:
+
+1. Install the Turso CLI:
+   ```bash
+   curl -sSfL https://get.tur.so/install.sh | bash
+   ```
+
+2. Login to Turso:
+   ```bash
+   turso auth login
+   ```
+
+3. Create an auth token for your database:
+   ```bash
+   turso db tokens create medicare-portal
+   ```
+
+4. Copy the generated token to your .env file.
+
+If you're using an organization-specific database:
+   ```bash
+   turso db tokens create org-37
+   ```
+
+### Using Environment Variables
+
+You can also set environment variables directly:
+
+```bash
+export TURSO_DB_URL="https://your-database-name-org.turso.io"
+export TURSO_AUTH_TOKEN="your-turso-auth-token"
+```
+
+## Installation
+
+Make sure you have Nim 2.2.0+ installed. You can install dependencies with:
+
+```bash
+nimble install
+```
+
+## Running the Application
+
+### Using the run.sh Script (Recommended)
+
+The easiest way to run the application is to use the provided script:
+
+```bash
+./run.sh
+```
+
+This script will:
+- Check for a .env file and create one from the sample if needed
+- Verify your Turso auth token is set
+- Compile and run the application
+
+### Command Line Options
+
+The application supports several command line options:
+
+```bash
+./run.sh --dry-run    # Run without saving emails to database
+./run.sh --verbose    # Enable more detailed logging
+./run.sh --quiet      # Reduce log output
+./run.sh --help       # Show help message
+```
+
+You can also compile and run the application directly:
+
+```bash
+nim c -r src/n_email_schedule.nim
+```
+
+### Dry-Run Mode
+
+If you want to test the application without connecting to a database:
+
+```bash
+./run.sh --dry-run
+```
+
+In dry-run mode:
+- No database connection is required
+- Test contacts are generated automatically
+- Emails are calculated but not saved to the database
+- Perfect for testing scheduling logic
+
+## Testing
+
+Run the unit tests to verify the scheduling logic:
+
+```bash
+nim c -r tests/test_scheduler.nim
+```
+
+## Debugging
+
+The application generates detailed logs in `scheduler.log` that you can monitor:
+
+```bash
+tail -f scheduler.log
+```
+
+## Database Schema Requirements
+
+The application expects the following database schema:
+
+### `contacts` table
+```sql
+CREATE TABLE contacts (
+  id INTEGER PRIMARY KEY,
+  first_name TEXT NOT NULL,
+  last_name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  current_carrier TEXT NOT NULL,
+  plan_type TEXT NOT NULL,
+  effective_date TEXT NOT NULL,
+  birth_date TEXT NOT NULL,
+  tobacco_user BOOLEAN NOT NULL,
+  gender TEXT NOT NULL,
+  state TEXT NOT NULL,
+  zip_code TEXT NOT NULL,
+  agent_id INTEGER,
+  phone_number TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT ''
+);
+```
+
+### `contact_events` table
+```sql
+CREATE TABLE contact_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  contact_id INTEGER,
+  lead_id INTEGER,
+  event_type TEXT NOT NULL,
+  metadata TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (contact_id) REFERENCES contacts(id)
+);
+```
+
+## State-specific Rules
+
+The application handles different types of Medicare enrollment rules:
+
+1. **Birthday Rule**: Enrollment window around the enrollee's birthday
+2. **Effective Date Rule**: Enrollment window around the policy's effective date
+3. **Year-Round Enrollment**: States with continuous enrollment opportunities
+
+================
+File: run.sh
+================
+#!/bin/bash
+
+# Run Medicare Email Scheduler
+
+# Set path to nim compiler
+NIM_PATH="/Users/reuben/.nimble/bin/nim"
+
+# Check if nim compiler exists at specified path
+if [ ! -f "$NIM_PATH" ]; then
+    echo "Error: nim compiler not found at $NIM_PATH"
+    echo "Please update the NIM_PATH variable in this script with the correct path"
+    exit 1
+fi
+
+# Parse arguments
+DRY_RUN=false
+VERBOSE=false
+QUIET=false
+RELEASE=false
+ARGS=""
+NIM_ARGS=""
+
+for arg in "$@"; do
+  case $arg in
+    --dry-run|-d)
+      DRY_RUN=true
+      ARGS="$ARGS -d"
+      ;;
+    --verbose|-v)
+      VERBOSE=true
+      ARGS="$ARGS -v"
+      ;;
+    --quiet|-q)
+      QUIET=true
+      ARGS="$ARGS -q"
+      ;;
+    --release|-r)
+      RELEASE=true
+      NIM_ARGS="$NIM_ARGS -d:release"
+      ;;
+    --help|-h)
+      echo "Medicare Email Scheduler"
+      echo "Usage: run.sh [options]"
+      echo "Options:"
+      echo "  -d, --dry-run      Run without saving emails to database"
+      echo "  -v, --verbose      Enable verbose logging"
+      echo "  -q, --quiet        Reduce log output"
+      echo "  -r, --release      Build with optimizations (release mode)"
+      echo "  -h, --help         Show this help message"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $arg"
+      echo "Use --help for usage information"
+      exit 1
+      ;;
+  esac
+done
+
+# Check if .env file exists (only if not in dry-run mode)
+if [ "$DRY_RUN" = false ] && [ ! -f .env ]; then
+    echo "Warning: .env file not found. Creating from sample."
+    if [ -f .env.sample ]; then
+        cp .env.sample .env
+        echo "Created .env from .env.sample. Please edit with your credentials."
+    else
+        echo "Error: .env.sample not found. Please create .env file manually."
+        exit 1
+    fi
+fi
+
+# Check for Turso auth token (only if not in dry-run mode)
+if [ "$DRY_RUN" = false ]; then
+    AUTH_TOKEN=$(grep TURSO_AUTH_TOKEN .env | cut -d= -f2)
+    if [[ "$AUTH_TOKEN" == "your_turso_auth_token" ]]; then
+        echo "Error: Please update your Turso auth token in .env file"
+        echo "You can get a token with: turso db tokens create medicare-portal"
+        echo "Or run with --dry-run to test without a database connection"
+        exit 1
+    fi
+fi
+
+# Compile step
+echo "Compiling Medicare Email Scheduler..."
+if [ "$RELEASE" = true ]; then
+    echo "Building in release mode with optimizations"
+fi
+if [ "$DRY_RUN" = true ]; then
+    echo "Dry run mode - no emails will be saved to the database"
+fi
+
+# Compile with specified options
+"$NIM_PATH" c $NIM_ARGS src/n_email_schedule.nim
+COMPILE_CODE=$?
+if [ $COMPILE_CODE -ne 0 ]; then
+    echo "Error: Compilation failed with code $COMPILE_CODE"
+    exit $COMPILE_CODE
+fi
+
+# Run the application
+echo "Running Medicare Email Scheduler..."
+./src/n_email_schedule $ARGS
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -ne 0 ]; then
+    echo "Error: Program exited with code $EXIT_CODE"
+    exit $EXIT_CODE
+else
+    echo "Medicare Email Scheduler completed successfully"
+fi
+
+
+
+================================================================
+End of Codebase
+================================================================
