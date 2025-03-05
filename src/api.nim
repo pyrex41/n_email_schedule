@@ -32,6 +32,39 @@ proc emailsToJson(emails: seq[Email]): JsonNode =
   for email in emails:
     result.add(toJson(email))
 
+# Track applied rules and exclusions for verbose API responses
+type
+  SchedulingMetadata* = object
+    appliedRules*: seq[string]
+    exclusions*: seq[string]
+    stateRuleType*: string
+    exclusionWindow*: tuple[start, endDate: string]
+
+proc newSchedulingMetadata*(): SchedulingMetadata =
+  SchedulingMetadata(
+    appliedRules: @[],
+    exclusions: @[],
+    stateRuleType: "",
+    exclusionWindow: ("", "")
+  )
+
+proc toJson*(metadata: SchedulingMetadata): JsonNode =
+  result = %*{
+    "appliedRules": metadata.appliedRules,
+    "exclusions": metadata.exclusions
+  }
+  
+  # Add state rule if available
+  if metadata.stateRuleType != "":
+    result["stateRuleType"] = %metadata.stateRuleType
+  
+  # Add exclusion window if available
+  if metadata.exclusionWindow.start != "" and metadata.exclusionWindow.endDate != "":
+    result["exclusionWindow"] = %*{
+      "start": metadata.exclusionWindow.start,
+      "end": metadata.exclusionWindow.endDate
+    }
+
 # Swagger JSON definition
 const swaggerJson = """
 {
@@ -81,6 +114,11 @@ const swaggerJson = """
                   "organizationId": {
                     "type": "string",
                     "description": "Organization ID to specify database"
+                  },
+                  "verbose": {
+                    "type": "boolean",
+                    "description": "Include detailed metadata about scheduling decisions in the response",
+                    "default": false
                   }
                 }
               }
@@ -290,6 +328,11 @@ const swaggerJson = """
                   "organizationId": {
                     "type": "string",
                     "description": "Organization ID to specify database"
+                  },
+                  "verbose": {
+                    "type": "boolean",
+                    "description": "Include detailed metadata about scheduling decisions in the response",
+                    "default": false
                   }
                 }
               }
@@ -601,6 +644,13 @@ proc handleScheduleEmails(request: Request, dbConfig: DbConfig): Future[
       orgId = request.params["orgId"]
     elif "X-Organization-ID" in request.headers:
       orgId = request.headers["X-Organization-ID"]
+      
+    # Check if verbose response is requested (include metadata about scheduling decisions)
+    var verbose = false
+    if request.params.hasKey("verbose"):
+      verbose = request.params["verbose"] == "true"
+    elif reqJson.hasKey("verbose"):
+      verbose = reqJson["verbose"].getBool(false)
     
     if orgId == "":
       info "No organization ID provided for contact scheduling, using default database"
@@ -620,8 +670,16 @@ proc handleScheduleEmails(request: Request, dbConfig: DbConfig): Future[
     # Parse date or use current date
     let today = parseDate(reqJson, "today")
     
-    # Calculate emails
-    let emailsResult = calculateScheduledEmails(contact, today)
+    # Create metadata object if verbose output requested
+    var metadata: SchedulingMetadata
+    var metadataPtr: ptr SchedulingMetadata = nil
+    
+    if verbose:
+      metadata = newSchedulingMetadata()
+      metadataPtr = addr(metadata)
+    
+    # Calculate emails with optional metadata tracking
+    let emailsResult = calculateScheduledEmails(contact, today, metadataPtr)
     if not emailsResult.isOk:
       error "Failed to calculate emails for contact #" & $contact.id & ": " & emailsResult.error.message
       return errorResponse(HttpCode(emailsResult.error.code), emailsResult.error.message)
@@ -636,12 +694,32 @@ proc handleScheduleEmails(request: Request, dbConfig: DbConfig): Future[
       info "Email scheduled: " & email.emailType & " on " & email.scheduledAt.format("yyyy-MM-dd") & 
            " for contact #" & $contact.id & " - Reason: " & email.reason
     
-    # Return response with organization ID
-    return successResponse(%*{
+    # Create response object
+    var responseObj = %*{
       "organizationId": orgId, 
       "contactId": contact.id,
       "scheduledEmails": emailsToJson(emailsResult.value)
-    })
+    }
+    
+    # Add metadata if verbose mode is enabled
+    if verbose and metadataPtr != nil:
+      # Add rules and exclusions metadata to response
+      responseObj["appliedRules"] = %metadata.appliedRules
+      responseObj["exclusions"] = %metadata.exclusions
+      
+      # Add state rule type if available
+      if metadata.stateRuleType != "":
+        responseObj["stateRuleType"] = %metadata.stateRuleType
+      
+      # Add exclusion window if available
+      if metadata.exclusionWindow.start != "" and metadata.exclusionWindow.endDate != "":
+        responseObj["exclusionWindow"] = %*{
+          "start": metadata.exclusionWindow.start,
+          "end": metadata.exclusionWindow.endDate
+        }
+    
+    # Return the response
+    return successResponse(responseObj)
 
 proc handleGetContactEmails(request: Request, params: Table[string, string],
     dbConfig: DbConfig): Future[ResponseData] {.async.} =
@@ -720,6 +798,13 @@ proc handleBatchScheduleEmails(request: Request, dbConfig: DbConfig): Future[
     elif "X-Organization-ID" in request.headers:
       orgId = request.headers["X-Organization-ID"]
     
+    # Check if verbose response is requested (include metadata about scheduling decisions)
+    var verbose = false
+    if request.params.hasKey("verbose"):
+      verbose = request.params["verbose"] == "true"
+    elif reqJson.hasKey("verbose"):
+      verbose = reqJson["verbose"].getBool(false)
+    
     if orgId == "":
       info "No organization ID provided for batch processing, using default database"
     else:
@@ -749,6 +834,9 @@ proc handleBatchScheduleEmails(request: Request, dbConfig: DbConfig): Future[
     let today = parseDate(reqJson, "today")
     
     # Calculate batch emails
+    # Note: For now, we don't collect metadata in batch mode as it would require changing
+    # the calculateBatchScheduledEmails function signature, which is a larger change.
+    # If verbose metadata is needed for batch processing, we'll implement it separately.
     let batchResult = calculateBatchScheduledEmails(contacts, today)
     if not batchResult.isOk:
       error "Failed to calculate batch emails: " & batchResult.error.message
@@ -784,11 +872,19 @@ proc handleBatchScheduleEmails(request: Request, dbConfig: DbConfig): Future[
     var results = newJArray()
     for i, contactEmails in emailsBatch:
       if i < contacts.len:  # Safety check
-        results.add(%*{
+        # For verbose mode, we would need to collect metadata for each contact
+        # but for this implementation, we'll just provide the basic response
+        var contactResult = %*{
           "contactId": contacts[i].id,
           "organizationId": orgId,  # Include organization ID in response
           "scheduledEmails": emailsToJson(contactEmails)
-        })
+        }
+        
+        # When verbose mode is enabled, we could add a note about why metadata isn't included
+        if verbose:
+          contactResult["note"] = %"Detailed metadata not available in batch mode"
+          
+        results.add(contactResult)
         
     # Return response
     return successResponse(%*{"results": results})

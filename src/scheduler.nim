@@ -14,6 +14,21 @@ type
     Week2 = "Second week (August 25)",
     Week3 = "Third week (September 1)",
     Week4 = "Fourth week (September 7)"
+    
+  # For API response enrichment
+  SchedulingMetadata* = object
+    appliedRules*: seq[string]
+    exclusions*: seq[string]
+    stateRuleType*: string
+    exclusionWindow*: tuple[start, endDate: string]
+    
+proc newSchedulingMetadata*(): SchedulingMetadata =
+  result = SchedulingMetadata(
+    appliedRules: @[],
+    exclusions: @[],
+    stateRuleType: "",
+    exclusionWindow: ("", "")
+  )
 
 ## Determines if a given date falls within an exclusion window
 ## As per EmailRules.md, customers should not receive emails during their 
@@ -178,9 +193,10 @@ proc scheduleEmail(emails: var seq[Email], emailType: EmailType,
 ## Parameters:
 ##   contact: The contact to calculate emails for
 ##   today: Reference date (usually current date)
+##   metadata: Optional parameter to collect scheduling metadata for API responses
 ##
 ## Returns: A Result containing the sequence of scheduled emails or an error
-proc calculateScheduledEmails*(contact: Contact, today = now().utc): Result[seq[Email]] =
+proc calculateScheduledEmails*(contact: Contact, today = now().utc, metadata: ptr SchedulingMetadata = nil): Result[seq[Email]] =
   # We need to specify the type explicitly for empty sequences
   var emails: seq[Email] = @[]
   
@@ -547,6 +563,13 @@ proc calculateScheduledEmails*(contact: Contact, today = now().utc): Result[seq[
     if stateRule == YearRound:
       echo "Contact #" & $contact.id & " is in a year-round enrollment state (" & 
            contact.state & "), no emails will be scheduled"
+      
+      # Add to metadata if provided
+      if metadata != nil:
+        metadata.appliedRules.add("YearRoundEnrollmentState")
+        metadata.exclusions.add("All emails skipped due to year-round enrollment state (" & contact.state & ")")
+        metadata.stateRuleType = "YearRound"
+      
       return ok(newSeq[Email]())
     
     # Skip for unknown state rules
@@ -554,10 +577,27 @@ proc calculateScheduledEmails*(contact: Contact, today = now().utc): Result[seq[
       echo "Warning: Unknown state rule for state " & contact.state & 
            " for contact #" & $contact.id & 
            " (" & contact.firstName & " " & contact.lastName & ")"
+      
+      # Add to metadata if provided
+      if metadata != nil:
+        metadata.appliedRules.add("UnknownStateRule")
+        metadata.exclusions.add("All emails skipped due to unknown state rule for " & contact.state)
+      
       return ok(newSeq[Email]())
 
     # Calculate exclusion window
     let (eewStart, eewEnd) = getExclusionWindow(contact, today)
+    
+    # Add state rule and exclusion window info to metadata if provided
+    if metadata != nil:
+      metadata.stateRuleType = $stateRule
+      metadata.exclusionWindow = (eewStart.format("yyyy-MM-dd"), eewEnd.format("yyyy-MM-dd"))
+      
+      # Add general rule information
+      if stateRule == Birthday:
+        metadata.appliedRules.add("BirthdayStateRule")
+      elif stateRule == Effective:
+        metadata.appliedRules.add("EffectiveDateStateRule")
 
     # Track suppressed emails for post-exclusion window email
     var suppressed: seq[EmailType] = @[]
@@ -612,6 +652,21 @@ proc calculateScheduledEmails*(contact: Contact, today = now().utc): Result[seq[
         if isInExclusionWindow(birthdayEmailDate, eewStart, eewEnd):
           echo "Birthday email for contact #" & $contact.id & " suppressed due to exclusion window"
           suppressed.add(Birthday)
+          
+          # Add to metadata if provided
+          if metadata != nil:
+            metadata.exclusions.add("Birthday email skipped due to exclusion window (" & 
+                                   birthdayEmailDate.format("yyyy-MM-dd") & ")")
+        elif birthdayEmailDate < today:
+          # Add to metadata if provided
+          if metadata != nil:
+            metadata.exclusions.add("Birthday email skipped because scheduled date " & 
+                                   birthdayEmailDate.format("yyyy-MM-dd") & " is in the past")
+      else:
+        # Email was scheduled successfully - add to metadata
+        if metadata != nil:
+          metadata.appliedRules.add("BirthdayEmail")
+          metadata.appliedRules.add("14DayBeforeBirthday")
 
     # Schedule effective date email - Rule: Send 30 days before effective date
     # As per EmailRules.md, effective date emails are sent 30 days before the
@@ -639,6 +694,21 @@ proc calculateScheduledEmails*(contact: Contact, today = now().utc): Result[seq[
         if isInExclusionWindow(effectiveEmailDate, eewStart, eewEnd):
           echo "Effective date email for contact #" & $contact.id & " suppressed due to exclusion window"
           suppressed.add(Effective)
+          
+          # Add to metadata if provided
+          if metadata != nil:
+            metadata.exclusions.add("Effective date email skipped due to exclusion window (" & 
+                                   effectiveEmailDate.format("yyyy-MM-dd") & ")")
+        elif effectiveEmailDate < today:
+          # Add to metadata if provided
+          if metadata != nil:
+            metadata.exclusions.add("Effective date email skipped because scheduled date " & 
+                                   effectiveEmailDate.format("yyyy-MM-dd") & " is in the past")
+      else:
+        # Email was scheduled successfully - add to metadata
+        if metadata != nil:
+          metadata.appliedRules.add("EffectiveDateEmail")
+          metadata.appliedRules.add("30DayBeforeEffectiveDate")
 
     # Schedule AEP email - Rule: Assign to specific weeks in Aug/Sep
     # As per EmailRules.md, AEP emails are distributed across 4 weeks:
@@ -666,6 +736,15 @@ proc calculateScheduledEmails*(contact: Contact, today = now().utc): Result[seq[
     if not aepScheduled:
       echo "All AEP weeks failed for contact #" & $contact.id & " due to exclusion window or past dates"
       suppressed.add(AEP)
+      
+      # Add to metadata if provided
+      if metadata != nil:
+        metadata.exclusions.add("AEP email skipped because all distribution weeks were either in the exclusion window or in the past")
+    else:
+      # At least one AEP email was scheduled
+      if metadata != nil:
+        metadata.appliedRules.add("AEPEmail")
+        metadata.appliedRules.add("AEPDistributionWeeks")
 
     # Schedule post-exclusion window email
     # As per EmailRules.md, when emails are suppressed due to exclusion window,
@@ -722,9 +801,18 @@ proc calculateScheduledEmails*(contact: Contact, today = now().utc): Result[seq[
               reason: reason,
               contactId: contact.id
             ))
+            
+            # Add to metadata if provided
+            if metadata != nil:
+              metadata.appliedRules.add("PostExclusionWindowEmail")
+              metadata.appliedRules.add("DayAfterExclusionWindow")
           else:
             echo "No " & $emailType & " email was suppressed for contact #" & 
                  $contact.id & ", not scheduling post-exclusion window email"
+                 
+            # Add to metadata if provided
+            if metadata != nil:
+              metadata.exclusions.add("No post-exclusion window email needed for email type " & $emailType)
 
     # Schedule annual carrier update email - Rule: Send on January 31st each year
     # As per EmailRules.md, an annual carrier update email is sent on January 31st
