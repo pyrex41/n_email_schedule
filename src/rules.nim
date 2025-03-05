@@ -1,4 +1,5 @@
 import tables
+import config
 
 type
   StateRule* = enum
@@ -11,8 +12,8 @@ type
 const
   StateRules = {
     # Birthday states
-    "CA": (rule: Birthday, params: (-30, 60)),  # 60-day period, 30 days before
-    "ID": (rule: Birthday, params: (0, 63)),    # 63-day period from birthday
+    "CA": (rule: Birthday, params: (CA_BIRTHDAY_OFFSET, CA_BIRTHDAY_DURATION)),  # 60-day period, 30 days before
+    "ID": (rule: Birthday, params: (ID_BIRTHDAY_OFFSET, ID_BIRTHDAY_DURATION)),    # 63-day period from birthday
     "IL": (rule: Birthday, params: (0, 45)),    # 45-day period from birthday
     "KY": (rule: Birthday, params: (0, 60)),    # 60-day period from birthday
     "LA": (rule: Birthday, params: (-30, 93)),  # 93-day period, 30 days before
@@ -20,11 +21,11 @@ const
     "NV": (rule: Birthday, params: (0, 60)),    # 60-day period from birth month
     "OK": (rule: Birthday, params: (0, 60)),    # 60-day period from birthday
     "OR": (rule: Birthday, params: (0, 31)),    # 31-day period from birthday
-    "TX": (rule: Birthday, params: (-14, 30)),  # Add TX with Birthday rule
-    "FL": (rule: Birthday, params: (-14, 30)),  # Add FL with Birthday rule
+    "TX": (rule: Birthday, params: (TX_BIRTHDAY_OFFSET, TX_BIRTHDAY_DURATION)),  # From config.nim
+    "FL": (rule: Birthday, params: (FL_BIRTHDAY_OFFSET, FL_BIRTHDAY_DURATION)),  # From config.nim
     
     # Effective date states
-    "MO": (rule: Effective, params: (-30, 63)), # 63-day period, 30 days before
+    "MO": (rule: Effective, params: (MO_EFFECTIVE_OFFSET, MO_EFFECTIVE_DURATION)), # From config.nim
     
     # Year-round states
     "CT": (rule: YearRound, params: (0, 0)),
