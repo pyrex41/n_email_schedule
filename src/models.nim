@@ -15,4 +15,5 @@ type
   Email* = object
     emailType*, status*: string
     scheduledAt*: DateTime
-    reason*: string 
+    reason*: string
+    contactId*: int  # Add contactId field to match what tests expect 

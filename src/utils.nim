@@ -1,6 +1,7 @@
 import json, times, options, strutils, strformat
 import jester
 import models
+import logging
 
 # Result type for error handling
 type
@@ -45,18 +46,71 @@ template parseDate*(jsonNode: JsonNode, key: string, defaultDate: DateTime = now
       result = defaultDate
     result
 
-template withErrorHandling*(responseType: typedesc, body: untyped): untyped =
-  ## Template for handling errors in API routes
+# Logging utilities for consistent error handling
+var logger* = newConsoleLogger(fmtStr="[$time] - $levelname: ")
+var fileLogger* = newFileLogger("scheduler.log", fmtStr="[$time] - $levelname: ")
+
+# Configure logging
+proc setupLogging*(logLevel: Level = lvlInfo) =
+  addHandler(logger)
+  addHandler(fileLogger)
+  setLogFilter(logLevel)
+
+# Convenience logging functions that work with Result[T]
+template logResult*[T](res: Result[T], context: string): untyped =
+  if not res.isOk:
+    error context & ": " & res.error.message
+    res
+  else:
+    debug context & ": Success"
+    res
+
+# Template for ensuring all errors are logged
+template ensureLogged*(body: untyped): untyped =
   try:
     body
   except Exception as e:
+    error getCurrentExceptionMsg()
+    raise e
+
+# Enhanced Result templates that include logging
+template okWithLog*[T](value: T, context: string): Result[T] =
+  debug context & ": Success"
+  ok(value)
+
+template errWithLog*[T](message: string, code: int = 500, context: string): Result[T] =
+  error context & ": " & message
+  err[T](message, code)
+
+# Extended templates for API routes with better error handling and logging
+template withErrorHandlingAndLogging*(responseType: typedesc, context: string, body: untyped): untyped =
+  ## Enhanced template for handling errors with logging
+  try:
+    debug context & ": Starting operation"
+    body
+  except Exception as e:
+    error context & ": " & e.msg
     when responseType is void:
       resp Http500, %*{"error": e.msg}
     else:
       err(responseType, e.msg, 500)
+  finally:
+    debug context & ": Operation completed"
 
+# Result helper for executing a function with automatic error logging
+template tryWithLogging*[T](context: string, fn: untyped): Result[T] =
+  try:
+    debug context & ": Attempting operation"
+    let result = fn
+    debug context & ": Operation successful"
+    ok(result)
+  except Exception as e:
+    let errorMsg = getCurrentExceptionMsg()
+    error context & ": " & errorMsg
+    err[T](errorMsg, 500)
+
+# Template for sending API responses based on Result
 template apiResponse*[T](result: Result[T]): untyped =
-  ## Template for sending API responses based on Result
   if result.isOk:
     resp %*{"data": result.value}
   else:

@@ -52,6 +52,17 @@ const swaggerJson = """
       "post": {
         "summary": "Schedule emails for a contact",
         "description": "Calculate scheduled emails for a single contact",
+        "parameters": [
+          {
+            "name": "X-Organization-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Organization ID to specify database"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -66,6 +77,10 @@ const swaggerJson = """
                     "type": "string",
                     "format": "date",
                     "example": "2025-01-15"
+                  },
+                  "organizationId": {
+                    "type": "string",
+                    "description": "Organization ID to specify database"
                   }
                 }
               }
@@ -80,6 +95,12 @@ const swaggerJson = """
                 "schema": {
                   "type": "object",
                   "properties": {
+                    "organizationId": {
+                      "type": "string"
+                    },
+                    "contactId": {
+                      "type": "integer"
+                    },
                     "scheduledEmails": {
                       "type": "array",
                       "items": {
@@ -105,6 +126,86 @@ const swaggerJson = """
         "summary": "Get scheduled emails by contact ID",
         "description": "Retrieve scheduled emails for a contact by ID",
         "parameters": [
+          {
+            "name": "contactId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "ID of the contact"
+          },
+          {
+            "name": "today",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Reference date for calculations (defaults to today)"
+          },
+          {
+            "name": "orgId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Organization ID to specify database"
+          },
+          {
+            "name": "X-Organization-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Organization ID to specify database (alternative to query parameter)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "scheduledEmails": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Email"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Contact not found"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/organizations/{orgId}/contacts/{contactId}/scheduled-emails": {
+      "get": {
+        "summary": "Get scheduled emails by organization ID and contact ID",
+        "description": "Retrieve scheduled emails for a contact in a specific organization",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Organization ID to specify database"
+          },
           {
             "name": "contactId",
             "in": "path",
@@ -157,6 +258,101 @@ const swaggerJson = """
       "post": {
         "summary": "Schedule emails for multiple contacts",
         "description": "Calculate scheduled emails for multiple contacts with AEP distribution",
+        "parameters": [
+          {
+            "name": "X-Organization-ID",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Organization ID to specify database"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "contacts": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Contact"
+                    }
+                  },
+                  "today": {
+                    "type": "string",
+                    "format": "date",
+                    "example": "2025-01-15"
+                  },
+                  "organizationId": {
+                    "type": "string",
+                    "description": "Organization ID to specify database"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "contactId": {
+                            "type": "integer"
+                          },
+                          "organizationId": {
+                            "type": "string"
+                          },
+                          "scheduledEmails": {
+                            "type": "array",
+                            "items": {
+                              "$ref": "#/components/schemas/Email"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "500": {
+            "description": "Server error"
+          }
+        }
+      }
+    },
+    "/organizations/{orgId}/schedule-emails/batch": {
+      "post": {
+        "summary": "Schedule emails for multiple contacts in a specific organization",
+        "description": "Calculate scheduled emails for multiple contacts with AEP distribution",
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Organization ID to specify database"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -195,6 +391,9 @@ const swaggerJson = """
                         "properties": {
                           "contactId": {
                             "type": "integer"
+                          },
+                          "organizationId": {
+                            "type": "string"
                           },
                           "scheduledEmails": {
                             "type": "array",
@@ -384,97 +583,166 @@ proc errorResponse(status: HttpCode, message: string): ResponseData =
 # Handle API requests
 proc handleScheduleEmails(request: Request, dbConfig: DbConfig): Future[
     ResponseData] {.async.} =
-  try:
+  # Use the withErrorHandling template for consistent error handling
+  withErrorHandling(ResponseData):
+    # Parse the request body
     let reqJson = parseJson(request.body)
-    let contact = toContact(reqJson["contact"])
-
+    
+    # Validate required fields
+    let validation = validateRequired(reqJson, "contact")
+    if not validation.valid:
+      return errorResponse(Http400, "Missing required fields: " & validation.missingFields.join(", "))
+    
+    # Get organization ID (from request body, parameters or headers)
+    var orgId = ""
+    if reqJson.hasKey("organizationId"):
+      orgId = reqJson["organizationId"].getStr
+    elif request.params.hasKey("orgId"):
+      orgId = request.params["orgId"]
+    elif "X-Organization-ID" in request.headers:
+      orgId = request.headers["X-Organization-ID"]
+    
+    if orgId == "":
+      info "No organization ID provided for contact scheduling, using default database"
+    else:
+      info "Using organization ID for contact scheduling: " & orgId
+    
+    # Get database config for this organization
+    let orgDbConfig = getOrgDbConfig(orgId)
+    
+    # Parse contact
+    let contactResult = parseContact(reqJson["contact"])
+    if not contactResult.isOk:
+      return errorResponse(HttpCode(contactResult.error.code), contactResult.error.message)
+    
+    let contact = contactResult.value
+    
     # Parse date or use current date
-    var today: DateTime
-    try:
-      if reqJson.hasKey("today"):
-        today = parse(reqJson["today"].getStr, "yyyy-MM-dd", utc())
-      else:
-        today = now().utc
-    except:
-      today = now().utc
-
+    let today = parseDate(reqJson, "today")
+    
     # Calculate emails
-    let emails = calculateScheduledEmails(contact, today)
-
-    # Return response
-    return successResponse(%*{"scheduledEmails": emailsToJson(emails)})
-  except Exception as e:
-    error "Error scheduling emails: " & e.msg
-    return errorResponse(Http500, e.msg)
+    let emailsResult = calculateScheduledEmails(contact, today)
+    if not emailsResult.isOk:
+      return errorResponse(HttpCode(emailsResult.error.code), emailsResult.error.message)
+    
+    # Return response with organization ID
+    return successResponse(%*{
+      "organizationId": orgId, 
+      "contactId": contact.id,
+      "scheduledEmails": emailsToJson(emailsResult.value)
+    })
 
 proc handleGetContactEmails(request: Request, params: Table[string, string],
     dbConfig: DbConfig): Future[ResponseData] {.async.} =
-  try:
-    let contactId = parseInt(params["contactId"])
+  # Use the withErrorHandling template for consistent error handling
+  withErrorHandling(ResponseData):
+    # Validate contactId parameter
+    let contactIdStr = params.getOrDefault("contactId")
+    var contactId: int
+    try:
+      contactId = parseInt(contactIdStr)
+    except:
+      return errorResponse(Http400, "Invalid contact ID: " & contactIdStr)
+      
+    # Get organization ID (from request parameters or headers)
+    var orgId = ""
+    if request.params.hasKey("orgId"):
+      orgId = request.params["orgId"]
+    elif "X-Organization-ID" in request.headers:
+      orgId = request.headers["X-Organization-ID"]
+    
+    if orgId == "":
+      info "No organization ID provided, using default database"
+    else:
+      info "Using organization ID: " & orgId
+    
+    # Get database config for this organization
+    let orgDbConfig = getOrgDbConfig(orgId)
 
     # Get date parameter or use today
-    var today: DateTime
-    try:
+    let today = 
       if request.params.hasKey("today"):
-        today = parse(request.params["today"], "yyyy-MM-dd", utc())
+        try:
+          parse(request.params["today"], "yyyy-MM-dd", utc())
+        except:
+          now().utc
       else:
-        today = now().utc
-    except:
-      today = now().utc
+        now().utc
 
-    # Get contacts from database
-    let contacts = await getContacts(dbConfig)
-
-    # Find requested contact
-    var contactFound = false
-    var scheduledEmails: seq[Email]
-
-    for contact in contacts:
-      if contact.id == contactId:
-        contactFound = true
-        scheduledEmails = calculateScheduledEmails(contact, today)
-        break
-
-    if not contactFound:
-      return errorResponse(Http404, "Contact not found")
-    else:
-      return successResponse(%*{"scheduledEmails": emailsToJson(
-          scheduledEmails)})
-  except Exception as e:
-    error "Error retrieving scheduled emails: " & e.msg
-    return errorResponse(Http500, e.msg)
+    # Get contact directly by ID from the database
+    let contactsResult = await getContacts(orgDbConfig, contactId)
+    if not contactsResult.isOk:
+      return errorResponse(HttpCode(contactsResult.error.code), contactsResult.error.message)
+      
+    let contacts = contactsResult.value
+    
+    # Check if contact was found
+    if contacts.len == 0:
+      return errorResponse(Http404, "Contact not found with ID: " & $contactId)
+      
+    # Calculate emails for the contact
+    let targetContact = contacts[0]  # We should only have one contact
+    let emailsResult = calculateScheduledEmails(targetContact, today)
+    if not emailsResult.isOk:
+      return errorResponse(HttpCode(emailsResult.error.code), emailsResult.error.message)
+      
+    # Return response
+    return successResponse(%*{"scheduledEmails": emailsToJson(emailsResult.value)})
 
 proc handleBatchScheduleEmails(request: Request, dbConfig: DbConfig): Future[
     ResponseData] {.async.} =
-  try:
+  # Use the withErrorHandling template for consistent error handling
+  withErrorHandling(ResponseData):
     let reqJson = parseJson(request.body)
 
     # Validate required fields
     let validation = validateRequired(reqJson, "contacts")
     if not validation.valid:
-      resp Http400, %*{"error": "Missing required fields: " & validation.missingFields.join(", ")}
-      return
+      return errorResponse(Http400, "Missing required fields: " & validation.missingFields.join(", "))
+    
+    # Get organization ID (from request body, parameters or headers)
+    var orgId = ""
+    if reqJson.hasKey("organizationId"):
+      orgId = reqJson["organizationId"].getStr
+    elif request.params.hasKey("orgId"):
+      orgId = request.params["orgId"]
+    elif "X-Organization-ID" in request.headers:
+      orgId = request.headers["X-Organization-ID"]
+    
+    if orgId == "":
+      info "No organization ID provided for batch processing, using default database"
+    else:
+      info "Using organization ID for batch processing: " & orgId
+    
+    # Get database config for this organization
+    let orgDbConfig = getOrgDbConfig(orgId)
     
     # Parse contacts array
     var contacts: seq[Contact] = @[]
     var errors: seq[string] = @[]
     
     for i, contactNode in reqJson["contacts"]:
-      let contactResult = toContact(contactNode)
+      let contactResult = parseContact(contactNode)
       if contactResult.isOk:
         contacts.add(contactResult.value)
       else:
         errors.add("Contact #" & $i & ": " & contactResult.error.message)
     
     if errors.len > 0:
-      resp Http400, %*{"errors": errors}
-      return
+      return errorResponse(Http400, "Invalid contact data: " & errors.join("; "))
+      
+    if contacts.len == 0:
+      return errorResponse(Http400, "No valid contacts provided")
     
     # Parse date parameter  
     let today = parseDate(reqJson, "today")
     
     # Calculate batch emails
-    let emailsBatch = calculateBatchScheduledEmails(contacts, today)
+    let batchResult = calculateBatchScheduledEmails(contacts, today)
+    if not batchResult.isOk:
+      return errorResponse(HttpCode(batchResult.error.code), batchResult.error.message)
+      
+    let emailsBatch = batchResult.value
     
     # Build response
     var results = newJArray()
@@ -482,141 +750,81 @@ proc handleBatchScheduleEmails(request: Request, dbConfig: DbConfig): Future[
       if i < contacts.len:  # Safety check
         results.add(%*{
           "contactId": contacts[i].id,
+          "organizationId": orgId,  # Include organization ID in response
           "scheduledEmails": emailsToJson(contactEmails)
         })
         
     # Return response
-    resp %*{"results": results}
-  except Exception as e:
-    error "Error batch scheduling emails: " & e.msg
-    return errorResponse(Http500, e.msg)
+    return successResponse(%*{"results": results})
 
 # Main entry point for API server
 when isMainModule:
+  # Setup logging
+  setupLogging(lvlInfo)
+  
   # Load environment variables
   loadDotEnv()
   
   # Get port from env or use default
   var port = 5000
-  if existsEnv("API_PORT"):
-    try:
-      port = parseInt(getEnv("API_PORT"))
-    except:
-      echo "Invalid API_PORT, using default port 5000"
+  try:
+    port = parseInt(getEnv("PORT", "5000"))
+  except:
+    error "Invalid PORT environment variable, using default 5000"
+    port = 5000
   
-  echo "Starting API server on port ", port
+  info "Starting Medicare Email Scheduler API on port " & $port
   
-  # Create routes
-  routes:
-    get "/health":
-      resp %*{"status": "ok", "time": $now()}
-      
+  let dbConfig = getConfigFromEnv()
+  info "Connected to database at " & dbConfig.baseUrl
+  
+  # Define routes
+  let router = router("MedicareScheduler"):
     get "/api-docs":
-      resp swaggerJson
-      
+      ensureLogged:
+        resp swaggerJson, "application/json"
+        
     get "/docs":
-      resp Http200, {"Content-Type": "text/html"}.newHttpHeaders(), swaggerUiHtml
-      
+      ensureLogged:
+        resp swaggerUiHtml, "text/html"
+    
     post "/schedule-emails":
-      handleJsonRequest:
-        # Validate required fields
-        let validation = validateRequired(reqJson, "contact")
-        if not validation.valid:
-          errorJson("Missing required fields: " & validation.missingFields.join(", "))
-          return
-        
-        # Parse contact using the template
-        let contactResult = parseContact(reqJson["contact"])
-        if not contactResult.isOk:
-          errorJson(contactResult.error.message, contactResult.error.code)
-          return
-        
-        let contact = contactResult.value
-        
-        # Parse date parameter
-        let today = parseDate(reqJson, "today")
-        
-        # Calculate emails
-        let emails = calculateScheduledEmails(contact, today)
-        
-        # Return response
-        jsonResponse({"scheduledEmails": emailsToJson(emails)})
-      
-    post "/schedule-emails/batch":
-      handleJsonRequest:
-        # Validate required fields
-        let validation = validateRequired(reqJson, "contacts")
-        if not validation.valid:
-          errorJson("Missing required fields: " & validation.missingFields.join(", "))
-          return
-        
-        # Parse contacts array
-        var contacts: seq[Contact] = @[]
-        var errors: seq[string] = @[]
-        
-        for i, contactNode in reqJson["contacts"]:
-          let contactResult = parseContact(contactNode)
-          if contactResult.isOk:
-            contacts.add(contactResult.value)
-          else:
-            errors.add("Contact #" & $i & ": " & contactResult.error.message)
-        
-        if errors.len > 0:
-          jsonResponse({"errors": errors}, Http400)
-          return
-        
-        # Parse date parameter  
-        let today = parseDate(reqJson, "today")
-        
-        # Calculate batch emails
-        let emailsBatch = calculateBatchScheduledEmails(contacts, today)
-        
-        # Build response
-        var results = newJArray()
-        for i, contactEmails in emailsBatch:
-          if i < contacts.len:  # Safety check
-            results.add(%*{
-              "contactId": contacts[i].id,
-              "scheduledEmails": emailsToJson(contactEmails)
-            })
-            
-        # Return response
-        jsonResponse({"results": results})
-        
+      ensureLogged:
+        let response = await handleScheduleEmails(request, dbConfig)
+        return response
+    
+    # Support both with and without organization ID in the URL
     get "/contacts/@contactId/scheduled-emails":
-      withErrorHandling(void):
-        let contactId = parseInt(@"contactId")
+      ensureLogged:
+        let response = await handleGetContactEmails(request, @params, dbConfig)
+        return response
         
-        # Parse date param using our template
-        let today = parseDate(request.params.table, "today", now().utc)
-          
-        # Here you would typically load the contact from a database
-        # For testing, we'll create a mock contact
-        let contact = Contact(
-          id: contactId,
-          firstName: "Test",
-          lastName: "User",
-          email: "test@example.com",
-          currentCarrier: "Test Carrier",
-          planType: "Medicare",
-          effectiveDate: some(parse("2025-03-15", "yyyy-MM-dd", utc())),
-          birthDate: some(parse("1950-02-01", "yyyy-MM-dd", utc())),
-          tobaccoUser: false,
-          gender: "M",
-          state: "TX",
-          zipCode: "12345",
-          agentID: 1,
-          phoneNumber: some("555-1234"),
-          status: some("Active")
-        )
-          
-        # Calculate scheduled emails
-        let emails = calculateScheduledEmails(contact, today)
+    get "/organizations/@orgId/contacts/@contactId/scheduled-emails":
+      ensureLogged:
+        # Add orgId parameter to the request parameters
+        request.params["orgId"] = @"orgId"
+        let response = await handleGetContactEmails(request, @params, dbConfig)
+        return response
         
-        # Return response
-        jsonResponse({"scheduledEmails": emailsToJson(emails)})
-
+    post "/schedule-emails/batch":
+      ensureLogged:
+        let response = await handleBatchScheduleEmails(request, dbConfig)
+        return response
+    
+    # Organization-specific batch endpoint
+    post "/organizations/@orgId/schedule-emails/batch":
+      ensureLogged:
+        # Add orgId parameter to the request parameters
+        request.params["orgId"] = @"orgId"
+        let response = await handleBatchScheduleEmails(request, dbConfig)
+        return response
+        
+    notfound:
+      resp Http404, %*{"error": "Not found"}
+    
   # Start the server
-  let settings = newSettings(port=Port(port))
-  var jester = initJester(routes, settings=settings)
-  jester.serve()
+  try:
+    info "Medicare Email Scheduler API is running on http://localhost:" & $port
+    router.run(port = port.Port)
+  except Exception as e:
+    error "Failed to start server: " & e.msg

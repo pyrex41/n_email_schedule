@@ -20,6 +20,8 @@ const
     "NV": (rule: Birthday, params: (0, 60)),    # 60-day period from birth month
     "OK": (rule: Birthday, params: (0, 60)),    # 60-day period from birthday
     "OR": (rule: Birthday, params: (0, 31)),    # 31-day period from birthday
+    "TX": (rule: Birthday, params: (-14, 30)),  # Add TX with Birthday rule
+    "FL": (rule: Birthday, params: (-14, 30)),  # Add FL with Birthday rule
     
     # Effective date states
     "MO": (rule: Effective, params: (-30, 63)), # 63-day period, 30 days before

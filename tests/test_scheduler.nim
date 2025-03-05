@@ -1,10 +1,11 @@
-import unittest, times
+import unittest, times, options, sequtils
 import ../src/models, ../src/rules, ../src/scheduler
+import ../src/utils
 
 suite "Scheduler Tests":
   setup:
     let 
-      today = dateTime(1, mMar, 2025, 0, 0, 0, zone = utc())
+      today = dateTime(2025, mMar, 1, 0, 0, 0, zone = utc())
       jan1Birthday = Contact(
         id: 1,
         firstName: "John",
@@ -12,15 +13,15 @@ suite "Scheduler Tests":
         email: "john@example.com", 
         currentCarrier: "Test Carrier",
         planType: "Medicare",
-        effectiveDate: dateTime(1, mFeb, 2015, 0, 0, 0, zone = utc()),
-        birthDate: dateTime(1, mJan, 1950, 0, 0, 0, zone = utc()),
+        effectiveDate: some(dateTime(2015, mFeb, 1, 0, 0, 0, zone = utc())),
+        birthDate: some(dateTime(1950, mJan, 1, 0, 0, 0, zone = utc())),
         tobaccoUser: false,
         gender: "M",
         state: "TX",
         zipCode: "12345",
         agentID: 1,
-        phoneNumber: "555-1234",
-        status: "Active"
+        phoneNumber: some("555-1234"),
+        status: some("Active")
       )
       oregonContact = Contact(
         id: 2,
@@ -29,15 +30,15 @@ suite "Scheduler Tests":
         email: "jane@example.com",
         currentCarrier: "Test Carrier",
         planType: "Medicare",
-        effectiveDate: dateTime(1, mJun, 2015, 0, 0, 0, zone = utc()),
-        birthDate: dateTime(15, mMay, 1950, 0, 0, 0, zone = utc()),
+        effectiveDate: some(dateTime(2015, mJun, 1, 0, 0, 0, zone = utc())),
+        birthDate: some(dateTime(1950, mMay, 15, 0, 0, 0, zone = utc())),
         tobaccoUser: false,
         gender: "F",
         state: "OR",
         zipCode: "97123",
         agentID: 2,
-        phoneNumber: "555-5678",
-        status: "Active"
+        phoneNumber: some("555-5678"),
+        status: some("Active")
       )
       ctContact = Contact(
         id: 3,
@@ -46,36 +47,40 @@ suite "Scheduler Tests":
         email: "bob@example.com",
         currentCarrier: "Test Carrier",
         planType: "Medicare",
-        effectiveDate: dateTime(1, mJul, 2015, 0, 0, 0, zone = utc()),
-        birthDate: dateTime(10, mJun, 1952, 0, 0, 0, zone = utc()),
+        effectiveDate: some(dateTime(2015, mJul, 1, 0, 0, 0, zone = utc())),
+        birthDate: some(dateTime(1952, mJun, 10, 0, 0, 0, zone = utc())),
         tobaccoUser: false,
         gender: "M",
         state: "CT",
         zipCode: "06001",
         agentID: 3,
-        phoneNumber: "555-9012",
-        status: "Active"
+        phoneNumber: some("555-9012"),
+        status: some("Active")
       )
   
   test "January First Birthday Contact":
-    let emails = calculateScheduledEmails(jan1Birthday, today)
+    let emailsResult = calculateScheduledEmails(jan1Birthday, today)
+    check emailsResult.isOk
+    let emails = emailsResult.value
     check emails.len == 4  # Birthday, Effective, AEP (1), CarrierUpdate
     
     # Birthday email should be scheduled for Dec 18, 2025 (14 days before)
     let birthdayEmail = emails.filterIt(it.emailType == "Birthday")[0]
-    check birthdayEmail.scheduledAt == dateTime(18, mDec, 2025, 0, 0, 0, zone = utc())
+    check birthdayEmail.scheduledAt == dateTime(2025, mDec, 18, 0, 0, 0, zone = utc())
     
     # Effective email should be scheduled for Jan 2, 2026 (30 days before)
     let effectiveEmail = emails.filterIt(it.emailType == "Effective")[0]
-    check effectiveEmail.scheduledAt == dateTime(2, mJan, 2026, 0, 0, 0, zone = utc())
+    check effectiveEmail.scheduledAt == dateTime(2026, mJan, 2, 0, 0, 0, zone = utc())
     
     # AEP email should be scheduled for Aug 15, 2025
     let aepEmail = emails.filterIt(it.emailType == "AEP")[0]
-    check aepEmail.scheduledAt == dateTime(15, mAug, 2025, 0, 0, 0, zone = utc())
+    check aepEmail.scheduledAt == dateTime(2025, mAug, 15, 0, 0, 0, zone = utc())
   
   test "Oregon Contact with Birthday Rule":
     # Oregon has Birthday rule with exclusion window (31 days starting on birthday)
-    let emails = calculateScheduledEmails(oregonContact, today)
+    let emailsResult = calculateScheduledEmails(oregonContact, today)
+    check emailsResult.isOk
+    let emails = emailsResult.value
     
     # Check if we have a post-exclusion window email
     let postExclusionEmails = emails.filterIt(it.reason == "Post exclusion window email")
@@ -83,6 +88,8 @@ suite "Scheduler Tests":
     check postExclusionEmails[0].emailType == "Birthday"
   
   test "Year-Round Enrollment State (CT)":
-    let emails = calculateScheduledEmails(ctContact, today)
+    let emailsResult = calculateScheduledEmails(ctContact, today)
+    check emailsResult.isOk
+    let emails = emailsResult.value
     # No emails should be scheduled for year-round enrollment states
     check emails.len == 0 

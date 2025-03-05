@@ -1,9 +1,12 @@
 import unittest, times, strutils, strformat, sequtils, options
 import ../src/models, ../src/scheduler, ../src/rules
+import ../src/utils
 
 # A utility function to test and check email scheduling
 template checkEmails(contact: Contact, expectedCount: int, expectedTypes: varargs[string]) =
-  let emails = calculateScheduledEmails(contact, today)
+  let emailsResult = calculateScheduledEmails(contact, today)
+  check emailsResult.isOk
+  let emails = emailsResult.value
   check emails.len == expectedCount
   
   for emailType in expectedTypes:
@@ -87,7 +90,9 @@ suite "Scheduler Simple Tests":
       checkEmails(txContact, 4, "Birthday", "Effective", "AEP", "CarrierUpdate")
     else:
       # If in exclusion window, we might get a post-window email instead
-      let emails = calculateScheduledEmails(txContact, today)
+      let emailsResult = calculateScheduledEmails(txContact, today)
+      check emailsResult.isOk
+      let emails = emailsResult.value
       check emails.len > 0
   
   test "Oregon Contact (Birthday Rule)":
@@ -166,7 +171,9 @@ suite "Scheduler Simple Tests":
     check stateRule == YearRound
     
     # Year-round states should get no emails except possibly carrier update
-    let emails = calculateScheduledEmails(ctContact, today)
+    let emailsResult = calculateScheduledEmails(ctContact, today)
+    check emailsResult.isOk
+    let emails = emailsResult.value
     check emails.len <= 1
     if emails.len == 1:
       check emails[0].emailType == "CarrierUpdate"
@@ -191,7 +198,9 @@ suite "Scheduler Simple Tests":
     )
     
     # Should return empty sequence when critical dates are missing
-    let emails = calculateScheduledEmails(incompleteContact, today)
+    let emailsResult = calculateScheduledEmails(incompleteContact, today)
+    check emailsResult.isOk
+    let emails = emailsResult.value
     check emails.len == 0
   
   test "Batch Email Scheduling":
@@ -268,30 +277,179 @@ suite "Scheduler Simple Tests":
     ]
     
     # Test batch scheduling
-    let emailsBatch = calculateBatchScheduledEmails(contacts, today)
+    let batchResult = calculateBatchScheduledEmails(contacts, today)
     
     # Check batch results
-    check emailsBatch.len == contacts.len
+    check batchResult.isOk
+    let emailsBatch = batchResult.value
     
     # Each contact should have scheduled emails
     for i in 0..<contacts.len:
       check emailsBatch[i].len > 0
     
-    # Check AEP distribution
+    # Count AEP emails per week and check distribution
     var aepWeeks: array[4, int] = [0, 0, 0, 0]
-    
-    for i in 0..<contacts.len:
-      for email in emailsBatch[i]:
-        if email.emailType == "AEP":
-          if "First week" in email.reason:
+    for contactEmails in emailsBatch:
+      for email in contactEmails:
+        if email.emailType == $EmailType.AEP:
+          if email.scheduledAt == parse("2025-08-18", "yyyy-MM-dd", utc()):
             aepWeeks[0] += 1
-          elif "Second week" in email.reason:
+          elif email.scheduledAt == parse("2025-08-25", "yyyy-MM-dd", utc()): 
             aepWeeks[1] += 1
-          elif "Third week" in email.reason:
+          elif email.scheduledAt == parse("2025-09-01", "yyyy-MM-dd", utc()):
             aepWeeks[2] += 1
-          elif "Fourth week" in email.reason:
+          elif email.scheduledAt == parse("2025-09-07", "yyyy-MM-dd", utc()):
             aepWeeks[3] += 1
     
     # Check distribution is relatively balanced
     let totalAepEmails = aepWeeks.foldl(a + b)
-    check totalAepEmails > 0 
+    check totalAepEmails > 0
+
+  test "Birthday Email":
+    # Create a test contact with a birthday
+    let contact = Contact(
+      id: 1,
+      firstName: "John",
+      lastName: "Doe",
+      email: "john@example.com",
+      currentCarrier: "Medicare Advantage",
+      planType: "Test Plan",
+      effectiveDate: some(parse("2023-06-02", "yyyy-MM-dd", utc())),
+      birthDate: some(parse("1950-06-15", "yyyy-MM-dd", utc())),
+      tobaccoUser: false,
+      gender: "M",
+      state: "TX",
+      zipCode: "12345",
+      agentID: 1,
+      phoneNumber: some("555-123-4567"),
+      status: some("Active")
+    )
+
+    # Execute the scheduler
+    let emailsResult = calculateScheduledEmails(contact, parse("2023-06-01", "yyyy-MM-dd", utc()))
+    check emailsResult.isOk
+    let emails = emailsResult.value
+
+    # Find birthday emails
+    let birthdayEmails = emails.filterIt(it.emailType == $EmailType.Birthday)
+    
+    # Should have one birthday email
+    check(birthdayEmails.len == 1)
+    
+    # The email should be scheduled 14 days before birthday (June 1)
+    check(birthdayEmails[0].scheduledAt == parse("2023-06-01", "yyyy-MM-dd", utc()))
+    
+    # The email should be for correct contact
+    check(birthdayEmails[0].contactId == 1)
+
+  test "Effective Date Email":
+    # Create a test contact with an effective date
+    let contact = Contact(
+      id: 1,
+      firstName: "John",
+      lastName: "Doe",
+      email: "john@example.com",
+      currentCarrier: "Medicare Advantage",
+      planType: "Test Plan",
+      effectiveDate: some(parse("2023-07-01", "yyyy-MM-dd", utc())),
+      birthDate: some(parse("1950-06-15", "yyyy-MM-dd", utc())),
+      tobaccoUser: false,
+      gender: "M",
+      state: "TX",
+      zipCode: "12345",
+      agentID: 1,
+      phoneNumber: some("555-123-4567"),
+      status: some("Active")
+    )
+
+    # Execute the scheduler
+    let emailsResult = calculateScheduledEmails(contact, parse("2023-06-01", "yyyy-MM-dd", utc()))
+    check emailsResult.isOk
+    let emails = emailsResult.value
+
+    # Find effective date emails
+    let effectiveEmails = emails.filterIt(it.emailType == $EmailType.Effective)
+    
+    # Should have one effective date email
+    check(effectiveEmails.len == 1)
+    
+    # The email should be scheduled 30 days before effective date (June 1)
+    check(effectiveEmails[0].scheduledAt == parse("2023-06-01", "yyyy-MM-dd", utc()))
+    
+    # The email should be for correct contact
+    check(effectiveEmails[0].contactId == 1)
+
+  test "AEP Email":
+    # Create a test contact for AEP testing
+    let contact = Contact(
+      id: 1,
+      firstName: "John",
+      lastName: "Doe",
+      email: "john@example.com",
+      currentCarrier: "Medicare Advantage",
+      planType: "Test Plan",
+      effectiveDate: some(parse("2023-07-01", "yyyy-MM-dd", utc())),  # July 1st
+      birthDate: some(parse("1950-06-15", "yyyy-MM-dd", utc())),      # June 15th
+      tobaccoUser: false,
+      gender: "M",
+      state: "TX",  # Regular state, not year-round enrollment
+      zipCode: "12345",
+      agentID: 1,
+      phoneNumber: some("555-123-4567"),
+      status: some("Active")
+    )
+
+    # Execute the scheduler with September 1 as current date (AEP occurs in Oct-Dec)
+    let emailsResult = calculateScheduledEmails(contact, parse("2023-09-01", "yyyy-MM-dd", utc()))
+    check emailsResult.isOk
+    let emails = emailsResult.value
+
+    # Find AEP emails
+    let aepEmails = emails.filterIt(it.emailType == $EmailType.AEP)
+    
+    # Should have one AEP email
+    check(aepEmails.len == 1)
+    
+    # The email should be scheduled during AEP period (Sept-Dec)
+    check(aepEmails[0].scheduledAt >= parse("2023-09-01", "yyyy-MM-dd", utc()))
+    check(aepEmails[0].scheduledAt <= parse("2023-12-31", "yyyy-MM-dd", utc()))
+    
+    # The email should be for correct contact
+    check(aepEmails[0].contactId == 1)
+
+  test "Batch Contact Processing":
+    # Create multiple test contacts
+    var contacts: seq[Contact] = @[]
+    
+    # Add several contacts with different birthdays and effective dates
+    for i in 1..5:
+      let contact = Contact(
+        id: i,
+        firstName: "Contact" & $i,
+        lastName: "Test" & $i,
+        email: "contact" & $i & "@example.com",
+        currentCarrier: "Medicare Advantage",
+        planType: "Test Plan",
+        effectiveDate: some(parse("2023-0" & $i & "-01", "yyyy-MM-dd", utc())),  # Different months
+        birthDate: some(parse("1950-0" & $(i+2) & "-15", "yyyy-MM-dd", utc())),  # Different months
+        tobaccoUser: i mod 2 == 0,
+        gender: if i mod 2 == 0: "M" else: "F",
+        state: "TX",
+        zipCode: "1234" & $i,
+        agentID: i,
+        phoneNumber: some("555-123-456" & $i),
+        status: some("Active")
+      )
+      contacts.add(contact)
+    
+    # Execute batch scheduler
+    let batchResult = calculateBatchScheduledEmails(contacts, today)
+    check batchResult.isOk
+    let emailsBatch = batchResult.value
+    
+    # Should have results for all contacts
+    check(emailsBatch.len == contacts.len)
+    
+    # Each contact should have at least one email
+    for contactEmails in emailsBatch:
+      check(contactEmails.len > 0) 

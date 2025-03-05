@@ -216,20 +216,22 @@ proc runScheduler() {.async.} =
 
     # Process contacts based on size
     if contacts.len > 1:
-      # For multiple contacts, try batch processing first
+      # Schedule all contacts as a batch
       try:
-        # Calculate emails with AEP distribution
-        let emailsBatch = calculateBatchScheduledEmails(contacts, today)
-
-        # Process each contact's emails
-        for i, emails in emailsBatch:
-          if i < contacts.len: # Safety check
+        let batchResult = calculateBatchScheduledEmails(contacts, today)
+        if batchResult.isOk:
+          let emailsBatch = batchResult.value
+          let batchSize = emailsBatch.len 
+          info "Batch processed " & $batchSize & " contacts"
+          
+          # For each contact in the batch
+          for i in 0..<batchSize:
             let contact = contacts[i]
-
+            let emails = emailsBatch[i]
             info "Generated " & $emails.len & " emails for " &
                 contact.firstName & " " & contact.lastName
             totalEmails += emails.len
-
+            
             # Save or log the emails
             for email in emails:
               if config.isDryRun:
@@ -238,26 +240,56 @@ proc runScheduler() {.async.} =
                 info showEmailInfo(email, contact, false)
               else:
                 error "Failed to schedule " & email.emailType & " email for " & contact.email
+        else:
+          error "Batch processing failed: " & batchResult.error
+          # Fall back to individual processing
+          for contact in contacts:
+            try:
+              let emailsResult = calculateScheduledEmails(contact, today)
+              if emailsResult.isOk:
+                let emails = emailsResult.value
+                info "Generated " & $emails.len & " emails for " &
+                    contact.firstName & " " & contact.lastName
+                totalEmails += emails.len
+
+                # Save or log the emails
+                for email in emails:
+                  if config.isDryRun:
+                    info showEmailInfo(email, contact, true)
+                  elif await saveEmail(dbConfig, email, contact.id):
+                    info showEmailInfo(email, contact, false)
+                  else:
+                    error "Failed to schedule " & email.emailType & " email for " & contact.email
+              else:
+                error "Failed to calculate emails for " & contact.firstName & " " & 
+                    contact.lastName & ": " & emailsResult.error
+            except Exception as e:
+              error "Error processing contact " & contact.firstName & " " &
+                  contact.lastName & ": " & e.msg
       except Exception as e:
         error "Error in batch processing: " & e.msg
 
         # Fall back to individual processing
         for contact in contacts:
           try:
-            let emails = calculateScheduledEmails(contact, today)
+            let emailsResult = calculateScheduledEmails(contact, today)
+            if emailsResult.isOk:
+              let emails = emailsResult.value
+              info "Generated " & $emails.len & " emails for " &
+                  contact.firstName & " " & contact.lastName
+              totalEmails += emails.len
 
-            info "Generated " & $emails.len & " emails for " &
-                contact.firstName & " " & contact.lastName
-            totalEmails += emails.len
-
-            # Save or log the emails
-            for email in emails:
-              if config.isDryRun:
-                info showEmailInfo(email, contact, true)
-              elif await saveEmail(dbConfig, email, contact.id):
-                info showEmailInfo(email, contact, false)
-              else:
-                error "Failed to schedule " & email.emailType & " email for " & contact.email
+              # Save or log the emails
+              for email in emails:
+                if config.isDryRun:
+                  info showEmailInfo(email, contact, true)
+                elif await saveEmail(dbConfig, email, contact.id):
+                  info showEmailInfo(email, contact, false)
+                else:
+                  error "Failed to schedule " & email.emailType & " email for " & contact.email
+            else:
+              error "Failed to calculate emails for " & contact.firstName & " " & 
+                  contact.lastName & ": " & emailsResult.error
           except Exception as e:
             error "Error processing contact " & contact.firstName & " " &
                 contact.lastName & ": " & e.msg
@@ -265,20 +297,24 @@ proc runScheduler() {.async.} =
       # For a single contact, process normally
       for contact in contacts:
         try:
-          let emails = calculateScheduledEmails(contact, today)
+          let emailsResult = calculateScheduledEmails(contact, today)
+          if emailsResult.isOk:
+            let emails = emailsResult.value
+            info "Generated " & $emails.len & " emails for " & contact.firstName &
+                " " & contact.lastName
+            totalEmails += emails.len
 
-          info "Generated " & $emails.len & " emails for " & contact.firstName &
-              " " & contact.lastName
-          totalEmails += emails.len
-
-          # Save or log the emails
-          for email in emails:
-            if config.isDryRun:
-              info showEmailInfo(email, contact, true)
-            elif await saveEmail(dbConfig, email, contact.id):
-              info showEmailInfo(email, contact, false)
-            else:
-              error "Failed to schedule " & email.emailType & " email for " & contact.email
+            # Save or log the emails
+            for email in emails:
+              if config.isDryRun:
+                info showEmailInfo(email, contact, true)
+              elif await saveEmail(dbConfig, email, contact.id):
+                info showEmailInfo(email, contact, false)
+              else:
+                error "Failed to schedule " & email.emailType & " email for " & contact.email
+          else:
+            error "Failed to calculate emails for " & contact.firstName & " " & 
+                contact.lastName & ": " & emailsResult.error
         except Exception as e:
           error "Error processing contact " & contact.firstName & " " &
               contact.lastName & ": " & e.msg
