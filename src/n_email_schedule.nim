@@ -2,7 +2,8 @@
 # 
 # Schedules emails based on Medicare enrollment rules
 
-import asyncdispatch, times, strutils, logging, parseopt
+import asyncdispatch, strutils, logging, parseopt, options
+import times  # Import the full times module, including epochTime
 import models, scheduler, database, dotenv
 
 # Forward declare the API module
@@ -205,8 +206,13 @@ proc runScheduler() {.async.} =
       info "Using test contacts for dry run"
     else:
       try:
-        contacts = await getContacts(dbConfig)
-        info "Retrieved " & $contacts.len & " contacts from database"
+        let contactsResult = await getContacts(dbConfig)
+        if contactsResult.isOk:
+          contacts = contactsResult.value
+          info "Retrieved " & $contacts.len & " contacts from database"
+        else:
+          error "Failed to retrieve contacts: " & contactsResult.error.message
+          contacts = getTestContacts()
       except Exception as e:
         error "Failed to connect to database, falling back to test contacts: " & e.msg
         contacts = getTestContacts()
@@ -218,13 +224,20 @@ proc runScheduler() {.async.} =
 
     # Process contacts based on size
     if contacts.len > 1:
-      # Schedule all contacts as a batch
+      # Schedule all contacts as a batch using parallel processing
       try:
-        let batchResult = calculateBatchScheduledEmails(contacts, today)
+        let startTime = epochTime()
+        info "Starting parallel batch processing of " & $contacts.len & " contacts"
+        
+        let batchResult = await calculateBatchScheduledEmailsAsync(contacts, today)
+        
+        let endTime = epochTime()
+        let processingTime = (endTime - startTime) * 1000 # Convert to milliseconds
+        
         if batchResult.isOk:
           let emailsBatch = batchResult.value
           let batchSize = emailsBatch.len 
-          info "Batch processed " & $batchSize & " contacts"
+          info "Batch processed " & $batchSize & " contacts in " & $processingTime.int & "ms (parallel processing)"
           
           # For each contact in the batch
           for i in 0..<batchSize:
@@ -234,16 +247,28 @@ proc runScheduler() {.async.} =
                 contact.firstName & " " & contact.lastName
             totalEmails += emails.len
             
-            # Save or log the emails
-            for email in emails:
-              if config.isDryRun:
+            # Save or log the emails in a batch for efficiency
+            if config.isDryRun:
+              # In dry run mode, just log each email
+              for email in emails:
                 info showEmailInfo(email, contact, true)
-              elif await saveEmail(dbConfig, email, contact.id):
-                info showEmailInfo(email, contact, false)
+            else:
+              # In regular mode, use batch save for performance
+              let batchSaveResult = await saveEmailsBatch(dbConfig, emails)
+              if batchSaveResult.isOk:
+                for email in emails:
+                  info showEmailInfo(email, contact, false)
               else:
-                error "Failed to schedule " & email.emailType & " email for " & contact.email
+                error "Failed to save emails in batch: " & batchSaveResult.error.message
+                # Fall back to individual saves if batch fails
+                for email in emails:
+                  let saveResult = await saveEmail(dbConfig, email, contact.id)
+                  if saveResult.isOk:
+                    info showEmailInfo(email, contact, false)
+                  else:
+                    error "Failed to schedule " & email.emailType & " email for " & contact.email & ": " & saveResult.error.message
         else:
-          error "Batch processing failed: " & batchResult.error
+          error "Batch processing failed: " & batchResult.error.message
           # Fall back to individual processing
           for contact in contacts:
             try:
@@ -254,17 +279,29 @@ proc runScheduler() {.async.} =
                     contact.firstName & " " & contact.lastName
                 totalEmails += emails.len
 
-                # Save or log the emails
-                for email in emails:
-                  if config.isDryRun:
+                # Save or log the emails in a batch for better performance
+                if config.isDryRun:
+                  # In dry run mode, just log each email
+                  for email in emails:
                     info showEmailInfo(email, contact, true)
-                  elif await saveEmail(dbConfig, email, contact.id):
-                    info showEmailInfo(email, contact, false)
+                else:
+                  # Use batch save for better performance
+                  let batchSaveResult = await saveEmailsBatch(dbConfig, emails)
+                  if batchSaveResult.isOk:
+                    for email in emails:
+                      info showEmailInfo(email, contact, false)
                   else:
-                    error "Failed to schedule " & email.emailType & " email for " & contact.email
+                    error "Failed to save batch emails: " & batchSaveResult.error.message
+                    # Fall back to individual saves on batch failure
+                    for email in emails:
+                      let saveResult = await saveEmail(dbConfig, email, contact.id)
+                      if saveResult.isOk:
+                        info showEmailInfo(email, contact, false)
+                      else:
+                        error "Failed to schedule " & email.emailType & " email for " & contact.email & ": " & saveResult.error.message
               else:
                 error "Failed to calculate emails for " & contact.firstName & " " & 
-                    contact.lastName & ": " & emailsResult.error
+                    contact.lastName & ": " & emailsResult.error.message
             except Exception as e:
               error "Error processing contact " & contact.firstName & " " &
                   contact.lastName & ": " & e.msg
@@ -281,17 +318,29 @@ proc runScheduler() {.async.} =
                   contact.firstName & " " & contact.lastName
               totalEmails += emails.len
 
-              # Save or log the emails
-              for email in emails:
-                if config.isDryRun:
+              # Save or log the emails in a batch for better performance
+              if config.isDryRun:
+                # In dry run mode, just log each email
+                for email in emails:
                   info showEmailInfo(email, contact, true)
-                elif await saveEmail(dbConfig, email, contact.id):
-                  info showEmailInfo(email, contact, false)
+              else:
+                # Use batch save for better performance
+                let batchSaveResult = await saveEmailsBatch(dbConfig, emails)
+                if batchSaveResult.isOk:
+                  for email in emails:
+                    info showEmailInfo(email, contact, false)
                 else:
-                  error "Failed to schedule " & email.emailType & " email for " & contact.email
+                  error "Failed to save batch emails: " & batchSaveResult.error.message
+                  # Fall back to individual saves on batch failure
+                  for email in emails:
+                    let saveResult = await saveEmail(dbConfig, email, contact.id)
+                    if saveResult.isOk:
+                      info showEmailInfo(email, contact, false)
+                    else:
+                      error "Failed to schedule " & email.emailType & " email for " & contact.email & ": " & saveResult.error.message
             else:
               error "Failed to calculate emails for " & contact.firstName & " " & 
-                  contact.lastName & ": " & emailsResult.error
+                  contact.lastName & ": " & emailsResult.error.message
           except Exception as e:
             error "Error processing contact " & contact.firstName & " " &
                 contact.lastName & ": " & e.msg
@@ -309,7 +358,9 @@ proc runScheduler() {.async.} =
               let 
                 birthDate = contact.birthDate.get().format("yyyy-MM-dd")
                 effectiveDate = contact.effectiveDate.get().format("yyyy-MM-dd")
-                (eewStart, eewEnd) = getExclusionWindow(contact, today)
+                eew = getExclusionWindow(contact, today)
+                eewStart = eew.start
+                eewEnd = eew.endDate
               
               debug "Contact details - Birth date: " & birthDate & 
                     ", Effective date: " & effectiveDate & 
@@ -322,13 +373,15 @@ proc runScheduler() {.async.} =
             for email in emails:
               if config.isDryRun:
                 info showEmailInfo(email, contact, true)
-              elif await saveEmail(dbConfig, email, contact.id):
-                info showEmailInfo(email, contact, false)
               else:
-                error "Failed to schedule " & email.emailType & " email for " & contact.email
+                let saveResult = await saveEmail(dbConfig, email, contact.id)
+                if saveResult.isOk:
+                  info showEmailInfo(email, contact, false)
+                else:
+                  error "Failed to schedule " & email.emailType & " email for " & contact.email & ": " & saveResult.error.message
           else:
             error "Failed to calculate emails for " & contact.firstName & " " & 
-                contact.lastName & ": " & emailsResult.error
+                contact.lastName & ": " & emailsResult.error.message
         except Exception as e:
           error "Error processing contact " & contact.firstName & " " &
               contact.lastName & ": " & e.msg

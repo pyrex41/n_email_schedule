@@ -1,0 +1,20 @@
+{
+  "timestamp": "2025-03-05T15:39:22",
+  "component": "n_email_schedule.nim",
+  "error": "undeclared identifier: 'getExclusionWindow'",
+  "line": 361,
+  "context": "Attempting to use getExclusionWindow function in a debug section",
+  "root_cause": "getExclusionWindow was defined in scheduler.nim but not exported with '*'",
+  "solution": "Added export marker '*' to getExclusionWindow in scheduler.nim",
+  "code_before": "proc getExclusionWindow(contact: Contact, today: DateTime): tuple[start, endDate: DateTime] =",
+  "code_after": "proc getExclusionWindow*(contact: Contact, today: DateTime): tuple[start, endDate: DateTime] =",
+  "commit_hash": "not committed",
+  "related_files": ["src/scheduler.nim", "src/n_email_schedule.nim"],
+  "verification": "Successful compilation and run with --dry-run option",
+  "detection_method": "Compilation error in build log",
+  "lessons": [
+    "Remember to export helper functions that might be needed in other modules",
+    "Nim requires explicit export markers with '*' suffix",
+    "Recompile and verify after making export changes"
+  ]
+}

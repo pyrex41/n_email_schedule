@@ -15,7 +15,10 @@ const
   EFFECTIVE_EMAIL_DAYS_BEFORE* = 30
   
   # Exclusion window calculation
-  EXCLUSION_WINDOW_DAYS_BEFORE* = 60
+  EXCLUSION_WINDOW_DAYS_BEFORE* = 60  # Verified from EmailRules.md (60-Day Exclusion Window)
+  
+  # Email overlap threshold for standard case (no state rules)
+  EMAIL_OVERLAP_THRESHOLD_DAYS* = 30
   
   # Post-exclusion window timing - days after exclusion window ends
   POST_EXCLUSION_DAYS_AFTER* = 1

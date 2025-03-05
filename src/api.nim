@@ -1,6 +1,7 @@
 import asyncdispatch, times, strutils, sequtils, logging, os, tables
 import jester
 import json
+from times import epochTime
 import models, scheduler, database, dotenv, utils
 
 # Set up logging
@@ -833,17 +834,27 @@ proc handleBatchScheduleEmails(request: Request, dbConfig: DbConfig): Future[
     # Parse date parameter  
     let today = parseDate(reqJson, "today")
     
-    # Calculate batch emails
+    # Calculate batch emails using parallel processing
     # Note: For now, we don't collect metadata in batch mode as it would require changing
     # the calculateBatchScheduledEmails function signature, which is a larger change.
     # If verbose metadata is needed for batch processing, we'll implement it separately.
-    let batchResult = calculateBatchScheduledEmails(contacts, today)
+    
+    # Use the async version for parallel processing for better performance
+    echo "Starting parallel batch email processing for " & $contacts.len & " contacts"
+    let startTime = epochTime()
+    
+    let batchResult = await calculateBatchScheduledEmailsAsync(contacts, today)
+    
+    let endTime = epochTime()
+    let processingTime = (endTime - startTime) * 1000 # Convert to milliseconds
+    
     if not batchResult.isOk:
       error "Failed to calculate batch emails: " & batchResult.error.message
       return errorResponse(HttpCode(batchResult.error.code), batchResult.error.message)
       
     let emailsBatch = batchResult.value
-    info "Batch processing completed for " & $contacts.len & " contacts"
+    info "Batch processing completed for " & $contacts.len & " contacts in " & 
+          $processingTime.int & "ms (parallel processing)"
     
     # Log detailed batch information
     var totalEmails = 0

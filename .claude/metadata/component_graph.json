@@ -1,0 +1,92 @@
+{
+  "components": [
+    {
+      "name": "scheduler",
+      "file": "src/scheduler.nim",
+      "type": "core",
+      "purpose": "Calculate and schedule emails based on Medicare rules",
+      "dependencies": ["models", "rules", "utils", "config"],
+      "async_capable": true
+    },
+    {
+      "name": "database",
+      "file": "src/database.nim",
+      "type": "infrastructure",
+      "purpose": "Handle database operations for contacts and emails",
+      "dependencies": ["models", "dotenv"],
+      "async_capable": true
+    },
+    {
+      "name": "api",
+      "file": "src/api.nim",
+      "type": "interface",
+      "purpose": "Provide HTTP API endpoints for scheduler functionality",
+      "dependencies": ["models", "scheduler", "database"],
+      "async_capable": true
+    },
+    {
+      "name": "models",
+      "file": "src/models.nim",
+      "type": "data",
+      "purpose": "Define data structures for contacts and emails",
+      "dependencies": [],
+      "async_capable": false
+    },
+    {
+      "name": "rules",
+      "file": "src/rules.nim",
+      "type": "core",
+      "purpose": "Define Medicare enrollment rules by state",
+      "dependencies": ["models"],
+      "async_capable": false
+    },
+    {
+      "name": "utils",
+      "file": "src/utils.nim",
+      "type": "utility",
+      "purpose": "Provide helper functions for the application",
+      "dependencies": ["models"],
+      "async_capable": false
+    },
+    {
+      "name": "dotenv",
+      "file": "src/dotenv.nim",
+      "type": "utility",
+      "purpose": "Load environment variables from .env files",
+      "dependencies": [],
+      "async_capable": false
+    },
+    {
+      "name": "main",
+      "file": "src/n_email_schedule.nim",
+      "type": "entry",
+      "purpose": "Main entry point for the application",
+      "dependencies": ["models", "scheduler", "database", "dotenv", "api"],
+      "async_capable": true
+    }
+  ],
+  "critical_paths": [
+    {
+      "name": "email_calculation",
+      "path": ["models", "rules", "scheduler"],
+      "performance_sensitive": true
+    },
+    {
+      "name": "data_access",
+      "path": ["models", "database"],
+      "performance_sensitive": true
+    },
+    {
+      "name": "api_endpoints",
+      "path": ["models", "scheduler", "api"],
+      "performance_sensitive": true
+    }
+  ],
+  "parallel_components": [
+    {
+      "name": "batch_scheduler",
+      "components": ["scheduler", "database"],
+      "pattern": "parallel_processing"
+    }
+  ]
+}

@@ -145,7 +145,8 @@ main() {
   if [ ${#TESTS[@]} -eq 0 ]; then
     run_test "tests/test_email_rules.nim"
     run_test "tests/test_scheduler_simple.nim"
-    run_test "tests/test_api_simple.nim" 
+    run_test "tests/test_scheduler.nim"
+    run_test "tests/test_api_simple.nim"
     run_test "tests/test_api.nim"
     run_test "tests/test_utils.nim"
   else
