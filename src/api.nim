@@ -623,7 +623,18 @@ proc handleScheduleEmails(request: Request, dbConfig: DbConfig): Future[
     # Calculate emails
     let emailsResult = calculateScheduledEmails(contact, today)
     if not emailsResult.isOk:
+      error "Failed to calculate emails for contact #" & $contact.id & ": " & emailsResult.error.message
       return errorResponse(HttpCode(emailsResult.error.code), emailsResult.error.message)
+    
+    # Log detailed information about the scheduling decisions
+    let emails = emailsResult.value
+    info "Generated " & $emails.len & " emails for contact #" & $contact.id & 
+         " (" & contact.firstName & " " & contact.lastName & ", State: " & contact.state & ")"
+    
+    # Log details for each email that was scheduled
+    for email in emails:
+      info "Email scheduled: " & email.emailType & " on " & email.scheduledAt.format("yyyy-MM-dd") & 
+           " for contact #" & $contact.id & " - Reason: " & email.reason
     
     # Return response with organization ID
     return successResponse(%*{
@@ -740,9 +751,34 @@ proc handleBatchScheduleEmails(request: Request, dbConfig: DbConfig): Future[
     # Calculate batch emails
     let batchResult = calculateBatchScheduledEmails(contacts, today)
     if not batchResult.isOk:
+      error "Failed to calculate batch emails: " & batchResult.error.message
       return errorResponse(HttpCode(batchResult.error.code), batchResult.error.message)
       
     let emailsBatch = batchResult.value
+    info "Batch processing completed for " & $contacts.len & " contacts"
+    
+    # Log detailed batch information
+    var totalEmails = 0
+    for i, contactEmails in emailsBatch:
+      if i < contacts.len:  # Safety check
+        let contact = contacts[i]
+        totalEmails += contactEmails.len
+        
+        info "Contact #" & $contact.id & " (" & contact.firstName & " " & 
+             contact.lastName & ", State: " & contact.state & ") - " & 
+             $contactEmails.len & " emails scheduled"
+        
+        # Log details for special scheduling decisions
+        if contactEmails.len == 0:
+          info "No emails scheduled for contact #" & $contact.id & 
+               " - This may be due to year-round enrollment state or missing required dates"
+        
+        for email in contactEmails:
+          info "Email scheduled: " & email.emailType & " on " & 
+               email.scheduledAt.format("yyyy-MM-dd") & " for contact #" & 
+               $contact.id & " - Reason: " & email.reason
+    
+    info "Total emails scheduled in batch: " & $totalEmails
     
     # Build response
     var results = newJArray()

@@ -141,7 +141,20 @@ proc getAepWeekDate*(week: AepDistributionWeek, currentYear: int): DateTime =
 proc scheduleEmail(emails: var seq[Email], emailType: EmailType,
                   date: DateTime, eewStart, eewEnd: DateTime,
                   today: DateTime, contactId: int, reason = ""): bool =
-  if date >= today and not isInExclusionWindow(date, eewStart, eewEnd):
+  if date < today:
+    # We skip past dates
+    echo "Skipping " & $emailType & " email for contact #" & $contactId & 
+         " because date " & date.format("yyyy-MM-dd") & " is in the past"
+    return false
+  elif isInExclusionWindow(date, eewStart, eewEnd):
+    # We skip emails that fall within the exclusion window
+    echo "Skipping " & $emailType & " email for contact #" & $contactId & 
+         " because date " & date.format("yyyy-MM-dd") & 
+         " falls within exclusion window (" & eewStart.format("yyyy-MM-dd") & 
+         " to " & eewEnd.format("yyyy-MM-dd") & ")"
+    return false
+  else:
+    # Schedule the email
     emails.add(Email(
       emailType: $emailType,
       status: "Pending",
@@ -150,7 +163,6 @@ proc scheduleEmail(emails: var seq[Email], emailType: EmailType,
       contactId: contactId
     ))
     return true
-  return false
 
 ## Calculates scheduled emails for a single contact, adhering to rules in EmailRules.md
 ## 
@@ -533,11 +545,15 @@ proc calculateScheduledEmails*(contact: Contact, today = now().utc): Result[seq[
     # Skip for year-round enrollment states
     # As per EmailRules.md, year-round enrollment states don't receive scheduled emails
     if stateRule == YearRound:
+      echo "Contact #" & $contact.id & " is in a year-round enrollment state (" & 
+           contact.state & "), no emails will be scheduled"
       return ok(newSeq[Email]())
     
     # Skip for unknown state rules
     if stateRule == None:
-      echo "Warning: Unknown state rule for state " & contact.state
+      echo "Warning: Unknown state rule for state " & contact.state & 
+           " for contact #" & $contact.id & 
+           " (" & contact.firstName & " " & contact.lastName & ")"
       return ok(newSeq[Email]())
 
     # Calculate exclusion window
@@ -584,10 +600,17 @@ proc calculateScheduledEmails*(contact: Contact, today = now().utc): Result[seq[
       # Test expects 2025-04-16 for a 2025-04-30 birthday (14 days)
       birthdayEmailDate = birthdayDate - 14.days
 
+    # Log the birthday email scheduling decision process
+    echo "Processing Birthday email for contact #" & $contact.id & 
+         " with birthday on " & birthDate.format("yyyy-MM-dd") & 
+         ", scheduled for " & birthdayEmailDate.format("yyyy-MM-dd") & 
+         " (14 days before anniversary)"
+
     # Don't add duplicate birthday emails
     if not emails.anyIt(it.emailType == $EmailType.Birthday):
       if not scheduleEmail(emails, Birthday, birthdayEmailDate, eewStart, eewEnd, today, contact.id):
         if isInExclusionWindow(birthdayEmailDate, eewStart, eewEnd):
+          echo "Birthday email for contact #" & $contact.id & " suppressed due to exclusion window"
           suppressed.add(Birthday)
 
     # Schedule effective date email - Rule: Send 30 days before effective date
@@ -603,11 +626,18 @@ proc calculateScheduledEmails*(contact: Contact, today = now().utc): Result[seq[
       # Test expects 2025-03-31 for a 2025-04-30 effective date (30 days)
       effectiveEmailDate = effectiveDateYearly - 30.days
 
+    # Log the effective date email scheduling decision process
+    echo "Processing Effective date email for contact #" & $contact.id & 
+         " with effective date on " & effectiveDate.format("yyyy-MM-dd") & 
+         ", scheduled for " & effectiveEmailDate.format("yyyy-MM-dd") & 
+         " (30 days before anniversary)"
+
     # Don't add duplicate effective date emails
     if not emails.anyIt(it.emailType == $EmailType.Effective):
       if not scheduleEmail(emails, Effective, effectiveEmailDate, eewStart,
           eewEnd, today, contact.id):
         if isInExclusionWindow(effectiveEmailDate, eewStart, eewEnd):
+          echo "Effective date email for contact #" & $contact.id & " suppressed due to exclusion window"
           suppressed.add(Effective)
 
     # Schedule AEP email - Rule: Assign to specific weeks in Aug/Sep
@@ -616,20 +646,36 @@ proc calculateScheduledEmails*(contact: Contact, today = now().utc): Result[seq[
     # If a week falls in the exclusion window, try the next week
     var aepScheduled = false
     let testOrder = [Week3, Week1, Week2, Week4] # Try Week3 first for tests
+    
+    echo "Processing AEP email for contact #" & $contact.id & 
+         " with exclusion window " & eewStart.format("yyyy-MM-dd") & 
+         " to " & eewEnd.format("yyyy-MM-dd")
+         
     for week in testOrder:
       let aepDate = getAepWeekDate(week, currentYear)
+      echo "Trying AEP week " & $week & " (" & aepDate.format("yyyy-MM-dd") & ") for contact #" & $contact.id
+      
       if scheduleEmail(emails, AEP, aepDate, eewStart, eewEnd, today, 
                       contact.id, "AEP - " & $week):
+        echo "Scheduled AEP email for contact #" & $contact.id & " in week " & $week
         aepScheduled = true
         break
+      else:
+        echo "Failed to schedule AEP email for week " & $week & " for contact #" & $contact.id
     
     if not aepScheduled:
+      echo "All AEP weeks failed for contact #" & $contact.id & " due to exclusion window or past dates"
       suppressed.add(AEP)
 
     # Schedule post-exclusion window email
     # As per EmailRules.md, when emails are suppressed due to exclusion window,
     # a follow-up email should be sent the day after the exclusion window ends
     if suppressed.len > 0 and today <= eewEnd:
+      echo "Contact #" & $contact.id & " has " & $suppressed.len & 
+           " suppressed emails: " & $suppressed
+      echo "Evaluating for post-exclusion window email after " & 
+           eewEnd.format("yyyy-MM-dd")
+      
       # When a state has a rule window and emails were suppressed
       # For test compatibility, check for specific test conditions here
       
@@ -643,6 +689,10 @@ proc calculateScheduledEmails*(contact: Contact, today = now().utc): Result[seq[
           postWindowDate = parse("2025-02-16", "yyyy-MM-dd", utc())
           reason = "Post-window " & $emailType & " email"
           
+        echo "Scheduling special post-exclusion window email for contact #" & 
+             $contact.id & " (TX state with Feb 15 birthday) on " & 
+             postWindowDate.format("yyyy-MM-dd")
+            
         emails.add(Email(
           emailType: $emailType,
           status: "Pending",
@@ -653,6 +703,7 @@ proc calculateScheduledEmails*(contact: Contact, today = now().utc): Result[seq[
       else:
         # Normal case - use day after exclusion window
         let postWindowDate = eewEnd + 1.days
+        
         if postWindowDate >= today:
           let 
             emailType = if stateRule == Birthday: Birthday else: Effective
@@ -660,6 +711,10 @@ proc calculateScheduledEmails*(contact: Contact, today = now().utc): Result[seq[
           
           # Check if this type of email was suppressed
           if emailType in suppressed:
+            echo "Scheduling post-exclusion window email for contact #" & 
+                 $contact.id & " using " & $emailType & " type on " & 
+                 postWindowDate.format("yyyy-MM-dd") & " (day after exclusion window ends)"
+                
             emails.add(Email(
               emailType: $emailType,
               status: "Pending",
@@ -667,6 +722,9 @@ proc calculateScheduledEmails*(contact: Contact, today = now().utc): Result[seq[
               reason: reason,
               contactId: contact.id
             ))
+          else:
+            echo "No " & $emailType & " email was suppressed for contact #" & 
+                 $contact.id & ", not scheduling post-exclusion window email"
 
     # Schedule annual carrier update email - Rule: Send on January 31st each year
     # As per EmailRules.md, an annual carrier update email is sent on January 31st
@@ -873,21 +931,36 @@ proc calculateBatchScheduledEmails*(contacts: seq[Contact], today = now().utc): 
       for i in 0..<contactsCount:
         initialWeekAssignments.add(AepDistributionWeek(i mod 4))
       
+      echo "AEP distribution strategy: Week1=" & $weekAssignments[0] & 
+           ", Week2=" & $weekAssignments[1] & ", Week3=" & $weekAssignments[2] & 
+           ", Week4=" & $weekAssignments[3] & " contacts"
+      
       # Schedule AEP emails for each contact
       for i, contact in contacts:
         # Skip AEP emails for year-round enrollment states
         if getStateRule(contact.state) == YearRound:
+          echo "Skipping AEP email for contact #" & $contact.id & 
+               " because they are in a year-round enrollment state (" & contact.state & ")"
           continue
           
         # Get the contact's exclusion window
         let (eewStart, eewEnd) = getExclusionWindow(contact, today)
+        echo "AEP processing for contact #" & $contact.id & " with exclusion window " & 
+             eewStart.format("yyyy-MM-dd") & " to " & eewEnd.format("yyyy-MM-dd")
+             
         var scheduled = false
         
         # First try the initially assigned week
         let initialWeek = initialWeekAssignments[i]
         let initialDate = getAepWeekDate(initialWeek, currentYear)
         
+        echo "Initially assigned contact #" & $contact.id & " to AEP week " & 
+             $initialWeek & " (" & initialDate.format("yyyy-MM-dd") & ")"
+        
         if not isInExclusionWindow(initialDate, eewStart, eewEnd) and initialDate >= today:
+          echo "Scheduling AEP email for contact #" & $contact.id & 
+               " in initial week " & $initialWeek
+               
           results[i].add(Email(
             emailType: $AEP,
             status: "Pending",
@@ -897,11 +970,26 @@ proc calculateBatchScheduledEmails*(contacts: seq[Contact], today = now().utc): 
           ))
           scheduled = true
         else:
+          if isInExclusionWindow(initialDate, eewStart, eewEnd):
+            echo "Cannot schedule AEP email for contact #" & $contact.id & 
+                 " in initial week " & $initialWeek & " due to exclusion window"
+          elif initialDate < today:
+            echo "Cannot schedule AEP email for contact #" & $contact.id & 
+                 " in initial week " & $initialWeek & " because date is in the past"
+            
           # If the initial week doesn't work, try other weeks in sequence
+          echo "Trying alternative AEP weeks for contact #" & $contact.id
+          
           for week in AepDistributionWeek:
             if week != initialWeek:  # Skip the week we already tried
               let weekDate = getAepWeekDate(week, currentYear)
+              echo "Trying alternative AEP week " & $week & " (" & 
+                   weekDate.format("yyyy-MM-dd") & ") for contact #" & $contact.id
+                   
               if not isInExclusionWindow(weekDate, eewStart, eewEnd) and weekDate >= today:
+                echo "Scheduling AEP email for contact #" & $contact.id & 
+                     " in alternative week " & $week
+                     
                 results[i].add(Email(
                   emailType: $AEP,
                   status: "Pending",

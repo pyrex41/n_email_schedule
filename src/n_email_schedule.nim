@@ -155,11 +155,13 @@ proc getTestContacts(): seq[Contact] =
     debug "Failed to set custom dates for test contacts"
 
 proc showEmailInfo(email: Email, contact: Contact, isDryRun: bool): string =
-  # Helper function to format email info message
+  # Helper function to format email info message with enhanced logging
   var action = if isDryRun: "Would schedule" else: "Scheduled"
   var date = email.scheduledAt.format("yyyy-MM-dd")
+  var reasonInfo = if email.reason != "": " - Reason: " & email.reason else: ""
+  
   return action & " " & email.emailType & " email for " & contact.email &
-      " on " & date
+      " on " & date & reasonInfo
 
 proc runScheduler() {.async.} =
   # Parse command line options
@@ -301,7 +303,19 @@ proc runScheduler() {.async.} =
           if emailsResult.isOk:
             let emails = emailsResult.value
             info "Generated " & $emails.len & " emails for " & contact.firstName &
-                " " & contact.lastName
+                " " & contact.lastName & " (State: " & contact.state & ")"
+            
+            if contact.birthDate.isSome() and contact.effectiveDate.isSome():
+              let 
+                birthDate = contact.birthDate.get().format("yyyy-MM-dd")
+                effectiveDate = contact.effectiveDate.get().format("yyyy-MM-dd")
+                (eewStart, eewEnd) = getExclusionWindow(contact, today)
+              
+              debug "Contact details - Birth date: " & birthDate & 
+                    ", Effective date: " & effectiveDate & 
+                    ", Exclusion window: " & eewStart.format("yyyy-MM-dd") & 
+                    " to " & eewEnd.format("yyyy-MM-dd")
+            
             totalEmails += emails.len
 
             # Save or log the emails
