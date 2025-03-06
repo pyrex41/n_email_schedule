@@ -1,8 +1,10 @@
 import asyncdispatch, times, strutils, sequtils, logging, os, tables
-import jester
+import jester, options
 import json
-from times import epochTime
 import models, scheduler, database, dotenv, utils
+
+# Export jester's router and routes
+export jester
 
 # Set up logging
 var consoleLogger = newConsoleLogger(fmtStr="[$time] - $levelname: ")
@@ -35,21 +37,21 @@ proc emailsToJson(emails: seq[Email]): JsonNode =
 
 # Track applied rules and exclusions for verbose API responses
 type
-  SchedulingMetadata* = object
+  ApiSchedulingMetadata* = object
     appliedRules*: seq[string]
     exclusions*: seq[string]
     stateRuleType*: string
     exclusionWindow*: tuple[start, endDate: string]
 
-proc newSchedulingMetadata*(): SchedulingMetadata =
-  SchedulingMetadata(
+proc newApiSchedulingMetadata*(): ApiSchedulingMetadata =
+  ApiSchedulingMetadata(
     appliedRules: @[],
     exclusions: @[],
     stateRuleType: "",
     exclusionWindow: ("", "")
   )
 
-proc toJson*(metadata: SchedulingMetadata): JsonNode =
+proc toJson*(metadata: ApiSchedulingMetadata): JsonNode =
   result = %*{
     "appliedRules": metadata.appliedRules,
     "exclusions": metadata.exclusions
@@ -77,7 +79,7 @@ const swaggerJson = """
   },
   "servers": [
     {
-      "url": "http://localhost:5000",
+      "url": "http://localhost:5001",
       "description": "Local server"
     }
   ],
@@ -618,17 +620,16 @@ const swaggerUiHtml = """
 
 # Utility functions for API responses
 proc successResponse(data: JsonNode): ResponseData =
-  return (TCActionSend, HttpCode(200), {"Content-Type": "application/json"}.newHttpHeaders(), $data, true)
+  return (TCActionSend, HttpCode(200), some(@[("Content-Type", "application/json")]), $data, true)
 
 proc errorResponse(status: HttpCode, message: string): ResponseData =
-  return (TCActionSend, status, {"Content-Type": "application/json"}.newHttpHeaders(), $(%*{
+  return (TCActionSend, status, some(@[("Content-Type", "application/json")]), $(%*{
       "error": message}), true)
 
 # Handle API requests
 proc handleScheduleEmails(request: Request, dbConfig: DbConfig): Future[
     ResponseData] {.async.} =
-  # Use the withErrorHandling template for consistent error handling
-  withErrorHandling(ResponseData):
+  try:
     # Parse the request body
     let reqJson = parseJson(request.body)
     
@@ -643,7 +644,7 @@ proc handleScheduleEmails(request: Request, dbConfig: DbConfig): Future[
       orgId = reqJson["organizationId"].getStr
     elif request.params.hasKey("orgId"):
       orgId = request.params["orgId"]
-    elif "X-Organization-ID" in request.headers:
+    elif request.headers.hasKey("X-Organization-ID"):
       orgId = request.headers["X-Organization-ID"]
       
     # Check if verbose response is requested (include metadata about scheduling decisions)
@@ -672,12 +673,14 @@ proc handleScheduleEmails(request: Request, dbConfig: DbConfig): Future[
     let today = parseDate(reqJson, "today")
     
     # Create metadata object if verbose output requested
-    var metadata: SchedulingMetadata
+    var apiMetadata: ApiSchedulingMetadata
+    var schMetadata: SchedulingMetadata
     var metadataPtr: ptr SchedulingMetadata = nil
     
     if verbose:
-      metadata = newSchedulingMetadata()
-      metadataPtr = addr(metadata)
+      apiMetadata = newApiSchedulingMetadata()
+      schMetadata = newSchedulingMetadata()
+      metadataPtr = addr(schMetadata)
     
     # Calculate emails with optional metadata tracking
     let emailsResult = calculateScheduledEmails(contact, today, metadataPtr)
@@ -704,28 +707,24 @@ proc handleScheduleEmails(request: Request, dbConfig: DbConfig): Future[
     
     # Add metadata if verbose mode is enabled
     if verbose and metadataPtr != nil:
-      # Add rules and exclusions metadata to response
-      responseObj["appliedRules"] = %metadata.appliedRules
-      responseObj["exclusions"] = %metadata.exclusions
+      # Copy data from scheduler metadata to API metadata
+      apiMetadata.appliedRules = schMetadata.appliedRules
+      apiMetadata.exclusions = schMetadata.exclusions
+      apiMetadata.stateRuleType = schMetadata.stateRuleType
+      apiMetadata.exclusionWindow = schMetadata.exclusionWindow
       
-      # Add state rule type if available
-      if metadata.stateRuleType != "":
-        responseObj["stateRuleType"] = %metadata.stateRuleType
-      
-      # Add exclusion window if available
-      if metadata.exclusionWindow.start != "" and metadata.exclusionWindow.endDate != "":
-        responseObj["exclusionWindow"] = %*{
-          "start": metadata.exclusionWindow.start,
-          "end": metadata.exclusionWindow.endDate
-        }
+      # Add to response
+      responseObj["metadata"] = toJson(apiMetadata)
     
     # Return the response
     return successResponse(responseObj)
+  except Exception as e:
+    error "API Error: " & e.msg
+    return errorResponse(Http500, e.msg)
 
 proc handleGetContactEmails(request: Request, params: Table[string, string],
     dbConfig: DbConfig): Future[ResponseData] {.async.} =
-  # Use the withErrorHandling template for consistent error handling
-  withErrorHandling(ResponseData):
+  try:
     # Validate contactId parameter
     let contactIdStr = params.getOrDefault("contactId")
     var contactId: int
@@ -738,7 +737,7 @@ proc handleGetContactEmails(request: Request, params: Table[string, string],
     var orgId = ""
     if request.params.hasKey("orgId"):
       orgId = request.params["orgId"]
-    elif "X-Organization-ID" in request.headers:
+    elif request.headers.hasKey("X-Organization-ID"):
       orgId = request.headers["X-Organization-ID"]
     
     if orgId == "":
@@ -778,11 +777,13 @@ proc handleGetContactEmails(request: Request, params: Table[string, string],
       
     # Return response
     return successResponse(%*{"scheduledEmails": emailsToJson(emailsResult.value)})
+  except Exception as e:
+    error "API Error: " & e.msg
+    return errorResponse(Http500, e.msg)
 
 proc handleBatchScheduleEmails(request: Request, dbConfig: DbConfig): Future[
     ResponseData] {.async.} =
-  # Use the withErrorHandling template for consistent error handling
-  withErrorHandling(ResponseData):
+  try:
     let reqJson = parseJson(request.body)
 
     # Validate required fields
@@ -796,7 +797,7 @@ proc handleBatchScheduleEmails(request: Request, dbConfig: DbConfig): Future[
       orgId = reqJson["organizationId"].getStr
     elif request.params.hasKey("orgId"):
       orgId = request.params["orgId"]
-    elif "X-Organization-ID" in request.headers:
+    elif request.headers.hasKey("X-Organization-ID"):
       orgId = request.headers["X-Organization-ID"]
     
     # Check if verbose response is requested (include metadata about scheduling decisions)
@@ -899,22 +900,17 @@ proc handleBatchScheduleEmails(request: Request, dbConfig: DbConfig): Future[
         
     # Return response
     return successResponse(%*{"results": results})
+  except Exception as e:
+    error "API Error: " & e.msg
+    return errorResponse(Http500, e.msg)
 
 # Main entry point for API server
-when isMainModule:
+proc startApiServer*(port: int) {.async.} =
   # Setup logging
   setupLogging(lvlInfo)
   
-  # Load environment variables
-  loadDotEnv()
-  
-  # Get port from env or use default
-  var port = 5000
-  try:
-    port = parseInt(getEnv("PORT", "5000"))
-  except:
-    error "Invalid PORT environment variable, using default 5000"
-    port = 5000
+  # Load environment variables from .env file if it exists
+  dotenv.loadEnv()
   
   info "Starting Medicare Email Scheduler API on port " & $port
   
@@ -923,6 +919,10 @@ when isMainModule:
   
   # Define routes
   let router = router("MedicareScheduler"):
+    get "/health":
+      ensureLogged:
+        resp %*{"status": "ok", "time": now().format("yyyy-MM-dd'T'HH:mm:ss'Z'")}
+        
     get "/api-docs":
       ensureLogged:
         resp swaggerJson, "application/json"
@@ -971,3 +971,17 @@ when isMainModule:
     router.run(port = port.Port)
   except Exception as e:
     error "Failed to start server: " & e.msg
+
+when isMainModule:
+  # When run directly, start with default port
+  # Load environment variables
+  dotenv.loadEnv()
+  
+  var port = 5000
+  try:
+    port = parseInt(getEnv("PORT", "5000"))
+  except:
+    error "Invalid PORT environment variable, using default 5000"
+    port = 5000
+    
+  waitFor startApiServer(port)

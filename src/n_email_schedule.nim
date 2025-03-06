@@ -6,7 +6,7 @@ import asyncdispatch, strutils, logging, parseopt, options
 import times  # Import the full times module, including epochTime
 import models, scheduler, database, dotenv
 
-# Forward declare the API module
+# Import the API module when compiling with API support
 when defined(withApi):
   import api
 

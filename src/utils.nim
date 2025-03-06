@@ -97,6 +97,18 @@ template withErrorHandlingAndLogging*(responseType: typedesc, context: string, b
   finally:
     debug context & ": Operation completed"
 
+# Simple template for API error handling
+template withErrorHandling*(responseType: typedesc, body: untyped): untyped =
+  ## Simple template for handling errors in API handlers
+  try:
+    body
+  except Exception as e:
+    error "API Error: " & e.msg
+    let status = Http500
+    let message = e.msg
+    return (TCActionSend, status, some(@[("Content-Type", "application/json")]), 
+           $(%*{"error": message}), true)
+
 # Result helper for executing a function with automatic error logging
 template tryWithLogging*[T](context: string, fn: untyped): Result[T] =
   try:
