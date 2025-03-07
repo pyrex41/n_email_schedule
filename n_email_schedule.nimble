@@ -1,22 +1,18 @@
 # Package
 
 version       = "0.1.0"
-author        = "pyrex41"
-description   = "Medicare Email Scheduler"
-license       = "MIT"
+author        = "Medicare API Team"
+description   = "RESTful API for scheduling Medicare enrollment emails"
+license       = "Proprietary"
 srcDir        = "src"
-bin           = @["n_email_schedule"]
-
+bin           = @["api"]
 
 # Dependencies
 
-requires "nim >= 2.2.2"
-requires "asyncdispatch"
-requires "httpclient"
-requires "times"
-requires "json"
-requires "strutils"
-requires "tables"
-requires "sequtils"
-requires "unittest"
-requires "jester"
+requires "nim >= 2.0.0"
+requires "mummy >= 0.4.5"
+
+# Tasks
+
+task run, "Run the API server":
+  exec "nim c -r src/api.nim"

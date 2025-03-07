@@ -1,0 +1,277 @@
+[2025-03-06 17:02:04] - INFO: Loading environment variables...
+[2025-03-06 17:02:04] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-06 17:02:04] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-06 17:02:04] - INFO: Loading environment variables from .env file
+[2025-03-06 17:02:04] - INFO: Loading database configuration from environment
+[2025-03-06 17:02:04] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-06 17:02:04] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-06 17:02:04] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-06 17:02:04] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-06 17:02:04] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-06 17:02:04] - INFO: Auth token length: 207
+[2025-03-06 17:07:47] - INFO: Loading environment variables...
+[2025-03-06 17:07:47] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-06 17:07:47] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-06 17:07:47] - INFO: Loading environment variables from .env file
+[2025-03-06 17:07:47] - INFO: Loading database configuration from environment
+[2025-03-06 17:07:47] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-06 17:07:47] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-06 17:07:47] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-06 17:07:47] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-06 17:07:47] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-06 17:07:47] - INFO: Auth token length: 207
+[2025-03-06 17:08:05] - INFO: Loading environment variables...
+[2025-03-06 17:08:05] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-06 17:08:05] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-06 17:08:05] - INFO: Loading environment variables from .env file
+[2025-03-06 17:08:05] - INFO: Loading database configuration from environment
+[2025-03-06 17:08:05] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-06 17:08:05] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-06 17:08:05] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-06 17:08:05] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-06 17:08:05] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-06 17:08:05] - INFO: Auth token length: 207
+[2025-03-07 10:45:18] - INFO: Loading environment variables...
+[2025-03-07 10:45:18] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 10:45:18] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 10:45:18] - INFO: Loading environment variables from .env file
+[2025-03-07 10:45:18] - INFO: Loading database configuration from environment
+[2025-03-07 10:45:18] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 10:45:18] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 10:45:18] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 10:45:18] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:45:18] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:45:18] - INFO: Auth token length: 207
+[2025-03-07 10:47:48] - INFO: Loading environment variables...
+[2025-03-07 10:47:48] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 10:47:48] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 10:47:48] - INFO: Loading environment variables from .env file
+[2025-03-07 10:47:48] - INFO: Loading database configuration from environment
+[2025-03-07 10:47:48] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 10:47:48] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 10:47:48] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 10:47:48] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:47:48] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:47:48] - INFO: Auth token length: 207
+[2025-03-07 10:48:49] - INFO: Loading environment variables...
+[2025-03-07 10:48:49] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 10:48:49] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 10:48:49] - INFO: Loading environment variables from .env file
+[2025-03-07 10:48:49] - INFO: Loading database configuration from environment
+[2025-03-07 10:48:49] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 10:48:49] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 10:48:49] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 10:48:49] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:48:49] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:48:49] - INFO: Auth token length: 207
+[2025-03-07 10:52:56] - INFO: Loading environment variables...
+[2025-03-07 10:52:56] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 10:52:56] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 10:52:56] - INFO: Loading environment variables from .env file
+[2025-03-07 10:52:56] - INFO: Loading database configuration from environment
+[2025-03-07 10:52:56] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 10:52:56] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 10:52:56] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 10:52:56] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:52:56] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:52:56] - INFO: Auth token length: 207
+[2025-03-07 10:54:02] - INFO: Loading environment variables...
+[2025-03-07 10:54:02] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 10:54:02] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 10:54:02] - INFO: Loading environment variables from .env file
+[2025-03-07 10:54:02] - INFO: Loading database configuration from environment
+[2025-03-07 10:54:02] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 10:54:02] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 10:54:02] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 10:54:02] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:54:02] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:54:02] - INFO: Auth token length: 207
+[2025-03-07 10:55:11] - INFO: Loading environment variables...
+[2025-03-07 10:55:11] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 10:55:11] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 10:55:11] - INFO: Loading environment variables from .env file
+[2025-03-07 10:55:11] - INFO: Loading database configuration from environment
+[2025-03-07 10:55:11] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 10:55:11] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 10:55:11] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 10:55:11] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:55:11] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:55:11] - INFO: Auth token length: 207
+[2025-03-07 10:55:37] - INFO: Loading environment variables...
+[2025-03-07 10:55:37] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 10:55:37] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 10:55:37] - INFO: Loading environment variables from .env file
+[2025-03-07 10:55:37] - INFO: Loading database configuration from environment
+[2025-03-07 10:55:37] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 10:55:37] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 10:55:37] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 10:55:37] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:55:37] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:55:37] - INFO: Auth token length: 207
+[2025-03-07 10:58:48] - INFO: Loading environment variables...
+[2025-03-07 10:58:48] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 10:58:48] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 10:58:48] - INFO: Loading environment variables from .env file
+[2025-03-07 10:58:48] - INFO: Loading database configuration from environment
+[2025-03-07 10:58:48] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 10:58:48] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 10:58:48] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 10:58:48] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:58:48] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:58:48] - INFO: Auth token length: 207
+[2025-03-07 10:59:25] - INFO: Loading environment variables...
+[2025-03-07 10:59:25] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 10:59:25] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 10:59:25] - INFO: Loading environment variables from .env file
+[2025-03-07 10:59:25] - INFO: Loading database configuration from environment
+[2025-03-07 10:59:25] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 10:59:25] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 10:59:25] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 10:59:25] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:59:25] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:59:25] - INFO: Auth token length: 207
+[2025-03-07 10:59:43] - INFO: Loading environment variables...
+[2025-03-07 10:59:43] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 10:59:43] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 10:59:43] - INFO: Loading environment variables from .env file
+[2025-03-07 10:59:43] - INFO: Loading database configuration from environment
+[2025-03-07 10:59:43] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 10:59:43] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 10:59:43] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 10:59:43] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:59:43] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 10:59:43] - INFO: Auth token length: 207
+[2025-03-07 11:01:11] - INFO: Loading environment variables...
+[2025-03-07 11:01:11] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 11:01:11] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 11:01:11] - INFO: Loading environment variables from .env file
+[2025-03-07 11:01:11] - INFO: Loading database configuration from environment
+[2025-03-07 11:01:11] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 11:01:11] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 11:01:11] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 11:01:11] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:01:11] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:01:11] - INFO: Auth token length: 207
+[2025-03-07 11:08:17] - INFO: Loading environment variables...
+[2025-03-07 11:08:17] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 11:08:17] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 11:08:17] - INFO: Loading environment variables from .env file
+[2025-03-07 11:08:17] - INFO: Loading database configuration from environment
+[2025-03-07 11:08:17] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 11:08:17] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 11:08:17] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 11:08:17] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:08:17] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:08:17] - INFO: Auth token length: 207
+[2025-03-07 11:08:17] - INFO: Initializing organization database configuration cache...
+[2025-03-07 11:08:17] - INFO: Loading environment variables from .env file
+[2025-03-07 11:08:17] - INFO: Loading database configuration from environment
+[2025-03-07 11:08:17] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 11:08:17] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 11:08:17] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 11:08:17] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:08:17] - INFO: Loading all organization database configurations into memory
+[2025-03-07 11:08:56] - INFO: Loading environment variables...
+[2025-03-07 11:08:56] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 11:08:56] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 11:08:56] - INFO: Loading environment variables from .env file
+[2025-03-07 11:08:56] - INFO: Loading database configuration from environment
+[2025-03-07 11:08:56] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 11:08:56] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 11:08:56] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 11:08:56] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:08:56] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:08:56] - INFO: Auth token length: 207
+[2025-03-07 11:08:56] - INFO: Initializing organization database configuration cache...
+[2025-03-07 11:08:56] - INFO: Loading environment variables from .env file
+[2025-03-07 11:08:56] - INFO: Loading database configuration from environment
+[2025-03-07 11:08:56] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 11:08:56] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 11:08:56] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 11:08:56] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:08:56] - INFO: Loading all organization database configurations into memory
+[2025-03-07 11:09:16] - INFO: Loading environment variables...
+[2025-03-07 11:09:16] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 11:09:16] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 11:09:16] - INFO: Loading environment variables from .env file
+[2025-03-07 11:09:16] - INFO: Loading database configuration from environment
+[2025-03-07 11:09:16] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 11:09:16] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 11:09:16] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 11:09:16] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:09:16] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:09:16] - INFO: Auth token length: 207
+[2025-03-07 11:09:16] - INFO: Initializing organization database configuration cache...
+[2025-03-07 11:09:16] - INFO: Loading environment variables from .env file
+[2025-03-07 11:09:16] - INFO: Loading database configuration from environment
+[2025-03-07 11:09:16] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 11:09:16] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 11:09:16] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 11:09:16] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:09:16] - INFO: Loading all organization database configurations into memory
+[2025-03-07 11:10:00] - INFO: Loading environment variables...
+[2025-03-07 11:10:00] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 11:10:00] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 11:10:00] - INFO: Loading environment variables from .env file
+[2025-03-07 11:10:00] - INFO: Loading database configuration from environment
+[2025-03-07 11:10:00] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 11:10:00] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 11:10:00] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 11:10:00] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:10:00] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:10:00] - INFO: Auth token length: 207
+[2025-03-07 11:17:19] - INFO: Loading environment variables...
+[2025-03-07 11:17:19] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 11:17:19] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 11:17:19] - INFO: Loading environment variables from .env file
+[2025-03-07 11:17:19] - INFO: Loading database configuration from environment
+[2025-03-07 11:17:19] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 11:17:19] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 11:17:19] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 11:17:19] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:17:19] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:17:19] - INFO: Auth token length: 207
+[2025-03-07 11:18:04] - INFO: Loading environment variables...
+[2025-03-07 11:18:04] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 11:18:04] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 11:18:04] - INFO: Loading environment variables from .env file
+[2025-03-07 11:18:04] - INFO: Loading database configuration from environment
+[2025-03-07 11:18:04] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 11:18:04] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 11:18:04] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 11:18:04] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:18:04] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:18:04] - INFO: Auth token length: 207
+[2025-03-07 11:20:59] - INFO: Loading environment variables...
+[2025-03-07 11:20:59] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 11:20:59] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 11:20:59] - INFO: Loading environment variables from .env file
+[2025-03-07 11:20:59] - INFO: Loading database configuration from environment
+[2025-03-07 11:20:59] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 11:20:59] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 11:20:59] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 11:20:59] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:20:59] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:20:59] - INFO: Auth token length: 207
+[2025-03-07 11:22:52] - INFO: Loading environment variables...
+[2025-03-07 11:22:52] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 11:22:52] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 11:22:52] - INFO: Loading environment variables from .env file
+[2025-03-07 11:22:52] - INFO: Loading database configuration from environment
+[2025-03-07 11:22:52] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 11:22:52] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 11:22:52] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 11:22:52] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:22:52] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:22:52] - INFO: Auth token length: 207
+[2025-03-07 11:25:49] - INFO: Loading environment variables...
+[2025-03-07 11:25:49] - INFO: Using TURSO_NIM_DB_URL from .env file
+[2025-03-07 11:25:49] - INFO: Using TURSO_NIM_AUTH_TOKEN from .env file
+[2025-03-07 11:25:49] - INFO: Loading environment variables from .env file
+[2025-03-07 11:25:49] - INFO: Loading database configuration from environment
+[2025-03-07 11:25:49] - INFO: Found TURSO_NIM_DB_URL in .env file
+[2025-03-07 11:25:49] - INFO: Found TURSO_NIM_AUTH_TOKEN in .env file
+[2025-03-07 11:25:49] - INFO: Using auth token starting with: eyJhbGci...WkK_1eCQ
+[2025-03-07 11:25:49] - INFO: Database configuration loaded, URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:25:49] - INFO: Using main config URL: https://medicare-portal-pyrex41.turso.io
+[2025-03-07 11:25:49] - INFO: Auth token length: 207

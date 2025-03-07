@@ -1,30 +1,69 @@
-import os, strutils
+import os, streams, strutils, tables
 
-proc loadEnv*(filename = ".env") =
+proc loadEnv*(path: string = ".env", override = false, debug = false): TableRef[string, string] =
   ## Loads environment variables from a .env file
-  if not fileExists(filename):
+  ## 
+  ## Parameters:
+  ##   path: Path to the .env file (default: ".env")
+  ##   override: Whether to override existing environment variables (default: false)
+  ##   debug: Whether to print debug information (default: false)
+  ##
+  ## Returns:
+  ##   A table of loaded environment variables
+  
+  result = newTable[string, string]()
+  
+  if debug:
+    echo "Loading environment variables from: ", path
+  
+  if not fileExists(path):
+    if debug:
+      echo "File not found: ", path
     return
+  
+  let fileStream = newFileStream(path, fmRead)
+  if fileStream == nil:
+    if debug:
+      echo "Could not open file: ", path
+    return
+  
+  defer: fileStream.close()
+  
+  var line = ""
+  var lineNum = 0
+  while fileStream.readLine(line):
+    lineNum.inc
+    line = line.strip()
     
-  let content = readFile(filename)
-  for line in content.splitLines():
-    # Skip comments and empty lines
-    let trimmedLine = line.strip()
-    if trimmedLine.len == 0 or trimmedLine.startsWith("#"):
+    # Skip empty lines and comments
+    if line.len == 0 or line[0] == '#':
       continue
-      
+    
     # Parse KEY=VALUE format
-    let parts = trimmedLine.split('=', 1)
-    if parts.len != 2:
-      continue
+    let parts = line.split('=', 1)
+    if parts.len == 2:
+      let key = parts[0].strip()
+      var value = parts[1].strip()
       
-    let 
-      key = parts[0].strip()
-      value = parts[1].strip()
-    
-    # Skip if already set in environment (don't override)
-    if getEnv(key) == "":
-      putEnv(key, value)
-
-proc getEnvOrEmpty*(key: string): string =
-  ## Get environment variable or empty string if not found
-  result = getEnv(key) 
+      # Handle quoted values
+      if value.len >= 2 and ((value[0] == '"' and value[^1] == '"') or 
+                              (value[0] == '\'' and value[^1] == '\'')):
+        value = value[1..^2]
+      
+      # Check if variable should be set
+      let existingValue = getEnv(key)
+      let shouldSet = override or existingValue == ""
+      
+      # Store in result table
+      result[key] = value
+      
+      if shouldSet:
+        putEnv(key, value)
+        if debug:
+          echo "Set environment variable: ", key, "=", value
+      elif debug:
+        echo "Skipped existing environment variable: ", key, 
+             " (current=", existingValue, ", .env=", value, ")"
+    else:
+      if debug:
+        echo "Invalid format at line ", lineNum, ": ", line
